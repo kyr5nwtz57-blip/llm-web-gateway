@@ -1,0 +1,22 @@
+{
+	auto_https off
+}
+
+:80 {
+	redir /ops /ops/
+
+	handle_path /ops/* {
+		reverse_proxy ops-console:8000
+	}
+
+	@video path /v1/videos/generations
+	handle @video {
+		reverse_proxy glm2api:8000 {
+			header_up Authorization "Bearer {$GLM_ADAPTER_KEY}"
+		}
+	}
+
+	handle {
+		reverse_proxy new-api:3000
+	}
+}

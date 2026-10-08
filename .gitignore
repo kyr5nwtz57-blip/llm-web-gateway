@@ -1,0 +1,9 @@
+# .gitignore —— 凭证与运行时数据绝不入库
+data/
+**/__pycache__/
+**/*.pyc
+.venv/
+.venv*/
+*.egg-info/
+.env
+.generated-creds.txt
