@@ -44,6 +44,7 @@ mkdir -p data/{glm2api,doubao2api,deeperseeker,kimi2api,ops}
 docker build -t glm2api:latest       glm2api
 docker build -t doubao2api:latest    doubao2api
 docker build -t ops-console:latest   ops-console
+docker build -t media-router:latest  media-router
 docker build -t deeperseeker:latest  deeperseeker     # 已打补丁
 docker build -t kimi2api:latest      kimi2api
 ```
@@ -99,9 +100,18 @@ docker run -d --name ops-console --restart unless-stopped --network omni-net \
 
 # 5.4 Caddy（唯一宿主端口）
 docker run -d --name omni-caddy --restart unless-stopped --network omni-net \
-  -p 127.0.0.1:3000:80 -e GLM_ADAPTER_KEY=<GLM_API_KEY即适配器外部key> \
+  -p 127.0.0.1:3000:80 \
   -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile" caddy:2-alpine
+
+# 5.5 media-router（生图/生视频双平台故障转移）
+docker run -d --name media-router --restart unless-stopped --network omni-net \
+  -e SERVICE_TOKEN=<第一步给适配器的那个服务 token> media-router:latest
 ```
+
+> 整个系统只需**一个 token**：它同时是 new-api 网关 key、四家适配器 env
+> （`GLM_API_KEY`/`DOUBAO_API_KEY`/`KIMI` 的 `OPENAI_API_KEY`/`DEEPSEEKER_API_KEY`）、
+> media-router 的 `SERVICE_TOKEN`、以及 ops-console 的 `GATEWAY_KEY`。
+> Caddy 不再需要任何 key（媒体路由由 media-router 转发）。
 
 ## 6. 配置 new-api（渠道/token/自愈参数）——跑脚本
 

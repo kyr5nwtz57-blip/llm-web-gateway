@@ -13,8 +13,8 @@ harness / CLI（一个 key，模型名统一 free-chat）
         ▼
    Caddy（唯一入口，回环）
         ├─ /ops/*                        → ops-console（统一运维台）
-        ├─ /v1/images/generations        → glm2api（直连，任意模型名可用）
-        ├─ /v1/videos/generations        → glm2api（new-api 无视频端点）
+        ├─ /v1/images/generations        → media-router（豆包优先→GLM兜底）
+        ├─ /v1/videos/generations        → media-router（GLM优先→豆包兜底）
         └─ 其余                           → new-api
                                         ├─ glm2api        智谱清言（对话/工具/检索/生图/生视频）
                                         ├─ deeperseeker   DeepSeek 网页版（对话/工具/推理）
