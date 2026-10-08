@@ -1,0 +1,27 @@
+diff --git a/Dockerfile b/Dockerfile
+index 984eafc..e057914 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -11,13 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ 
+-COPY pyproject.toml uv.lock ./
+-
+-
+-RUN uv sync
+-
+ COPY . .
+ 
++RUN uv sync
+ 
+ RUN mkdir -p /app/data && \
+     ln -sf /app/data/deeperseeker.db /app/deeperseeker.db && \
+@@ -28,6 +24,7 @@ EXPOSE 4000
+ ENV DB_PATH=/app/data/deeperseeker.db
+ ENV DEEPSEEKER_COOKIE_PATH=/app/data/aws_cookies_deepseek.json
+ ENV HOST=0.0.0.0
++ENV PATH="/app/.venv/bin:$PATH"
+ 
+ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -sf http://localhost:4000/health || exit 1
+ 
