@@ -11,9 +11,7 @@
 
 	@gen path /v1/videos/generations /v1/images/generations
 	handle @gen {
-		reverse_proxy glm2api:8000 {
-			header_up Authorization "Bearer {$GLM_ADAPTER_KEY}"
-		}
+		reverse_proxy media-router:8000
 	}
 
 	handle {
