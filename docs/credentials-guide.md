@@ -1,0 +1,56 @@
+# 凭证手册：去哪拿、拿什么、换电脑怎么办
+
+> 适用：本机 LLM 网关（免费-adapters）。**本手册不含任何真实凭证值**——仓库里永远不存密码。
+
+## 一、四家网页版凭证（登录取值）
+
+通用前提：**必须在已登录状态下取**（未登录取到的是游客凭证，看着像但没用）。
+
+| # | 平台 | 打开 | 从哪取 | 取哪个字段 |
+|---|---|---|---|---|
+| 1 | 智谱网页版 | https://chatglm.cn | F12 → Application → Cookies → `chatglm.cn` | `chatglm_refresh_token` 的 Value（`eyJ` 开头长串）。若解出 `is_guest: true` = 游客凭证，无效，需重新登录 |
+| 2 | DeepSeek | https://chat.deepseek.com | F12 → Console：`copy(JSON.parse(localStorage.getItem('userToken')).value)` | 剪贴板里即为所需（必须取 `.value`，直接复制整个对象会失败） |
+| 3 | Kimi | https://www.kimi.com | F12 → Console：`copy(localStorage.getItem('refresh_token'))` | 剪贴板里即为所需。要 **refresh_token**，不要 access_token（后者几小时失效） |
+| 4 | 豆包 | https://www.doubao.com | F12 → Application → Cookies → `doubao.com` | `sessionid` 的 Value（一串字母数字）。有效期约 7–14 天，四家中最短 |
+
+取到后：打开运维台 `http://127.0.0.1:3000/ops/` → 对应行「更换凭证」→ 粘贴 → 保存（自动重启适配器）。
+
+## 二、智谱官方 API key（免费 GLM-4.7-Flash，渠道 ch11）
+
+| 项 | 内容 |
+|---|---|
+| 去哪 | https://open.bigmodel.cn → 左侧「API Keys」 |
+| 取什么 | 通用 API key，形如 `32位hex.16位字符` |
+| ⚠️ 关键 | **不要**用 Coding Plan 专用 key（base_url 带 `/coding/`，只吃套餐额度，欠费即 1113） |
+| 放哪 | 不在运维台；用于 new-api 的 `GLM-4.7-Flash官方` 渠道 |
+
+## 三、运维台登录码 & 网关 key（本机自设，不进 Git）
+
+两者都是**部署时自设**的值，故意不随仓库走（`data/` 已 gitignore）。
+
+| 值 | 存哪 | 换电脑时 |
+|---|---|---|
+| 运维台登录码 | 容器 `ops-console` 的环境变量 `OPS_ADMIN_PASSWORD`；部署机上也落盘于 `data/ops/.generated-creds.txt` | **自己带走**（密码管理器/纸面），或新机部署时重定一个——它只管本机 `/ops/` 页面，无关任何平台账号 |
+| 网关 key（客户端用） | new-api `tokens` 表；部署机 `data/ops/.generated-creds.txt` 亦有一份用于展示 | 同上，自己带走；或新机用 `scripts/init-new-api.py` 重新生成 |
+
+查法（在有值的机器上）：
+- 文件：`free-adapters/data/ops/.generated-creds.txt`
+- 容器：`docker inspect ops-console` 查 `OPS_ADMIN_PASSWORD` / `GATEWAY_KEY`
+
+## 四、换电脑：带什么、重新取什么
+
+| 东西 | 换电脑时 | 说明 |
+|---|---|---|
+| 运维台登录码 / 网关 key | 自己带走 | 本机自设，不进 Git；丢了可重定（无找回流程） |
+| 各家平台账号（手机号+密码） | 你自己知道即可 | 登录用；短信验证码发到绑定手机 |
+| 四家网页凭证 | **新电脑上重新取**（第一节） | 跟电脑无关，跟账号走 |
+| 智谱官方 API key | 可带可重建 | 控制台随时再建 |
+| 短信验证码 | 手机现收 | 随账号，不随电脑 |
+
+新机凭证填法：照 `docs/fresh-machine-setup.md` 起服务 → 运维台粘贴四家凭证 → 官方 key 配 ch11 渠道。
+
+## 五、三条铁律
+
+1. **必须已登录状态取**——未登录取到的是游客凭证，看着像但没用；
+2. **用 Console 的 `copy(...)` 最稳**——不要手敲、不要拖选（会带 `value : "` 多余字符）；
+3. **过期来运维台换，别反复重试**——连续失败会触发风控，可能从"过期"升级成"封号"。
