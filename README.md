@@ -5,6 +5,16 @@
 
 > 仅供个人学习研究、本机自用。自动化访问网页版违反各平台用户条款，有封号风险；请勿用于商业或对外服务。
 
+## 文档导航
+
+| 我要… | 看这份 |
+|---|---|
+| **日常使用**（客户端怎么配、能力怎么调、出问题看哪） | [docs/usage.md](docs/usage.md) |
+| **维护运维**（巡检、换凭证、备份、故障处置、改码上线） | [docs/operations.md](docs/operations.md) |
+| **取凭证**（去哪拿、拿什么、换电脑怎么办） | [docs/credentials-guide.md](docs/credentials-guide.md) |
+| **新机器部署**（从空机器到跑起来的分步清单） | [docs/fresh-machine-setup.md](docs/fresh-machine-setup.md) |
+| **部署参数备忘**（容器/端口/环境变量） | [docs/deploy-notes.md](docs/deploy-notes.md) |
+
 ## 架构
 
 ```
@@ -26,8 +36,9 @@ harness / CLI（一个 key，模型名统一 free-chat）
 用户侧只认一个模型名 `free-chat`（历史别名 `free-image` 兼容保留）。
 
 - 全部容器在 Docker 网络 `omni-net` 内以容器名互访；宿主只暴露 `127.0.0.1:3000`。
-- new-api 侧：`free-chat` 主用 GLM+DeepSeek（priority 10）、备用 Kimi+豆包（priority -1）；`free-image` 主用 GLM。
-- 各适配器自带限速与失败转移；new-api 开启自动禁用/启用（RetryTimes=3，401/403/429 触发）。
+- new-api 侧：五家**同层参与** `free-chat`，按权重分流 —— GLM-4.7-Flash 官方(50) > 智谱网页 GLM-5.3(40) ≈ DeepSeek 网页(40) > 豆包网页(35) ≈ Kimi 网页(35)；
+  某家失败自动禁用、恢复后自动回池（RetryTimes=3，401/403/429 触发）。
+- 生图/生视频走 `media-router`：生图豆包优先→GLM 兜底；生视频 GLM 优先→豆包兜底。
 
 ## 组件来源
 
