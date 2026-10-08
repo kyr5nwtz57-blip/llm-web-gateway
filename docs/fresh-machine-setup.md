@@ -103,18 +103,29 @@ docker run -d --name omni-caddy --restart unless-stopped --network omni-net \
   -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile" caddy:2-alpine
 ```
 
-## 6. 配置 new-api（渠道/token/自愈参数）
+## 6. 配置 new-api（渠道/token/自愈参数）——跑脚本
 
-浏览器打开 `http://127.0.0.1:3010` 需临时发布端口，或用 `docker exec` 直连。
-**最快的复刻方式**是把旧机器的 `one-api.db` 拷到本机数据目录（渠道、权重、
-token、options 全套都在里面），只需确认：
-- 渠道 base_url 已是容器名（`http://glm2api:8000` 等）；
-- 各渠道 key = 第 4 步对应服务端 key；
-- `RetryTimes=3`、自动禁用/启用=on、禁用码含 401,403,429。
+前提：new-api 已至少启动过一次（生成 `one-api.db` 与管理员账号）。
 
-若从零手建渠道：类型选 OpenAI 兼容自定义，base_url 见上表，模型重定向
-`free-chat → glm / v4.1flash / kimi-k2.6 / doubao`，`free-image → glm`（+ Seedream 备用），
-主用 priority=10（GLM/DeepSeek）、备用 priority=-1（Kimi/豆包）。
+```bash
+python scripts/init-new-api.py \
+  --db <new-api 数据目录>/one-api.db \
+  --glm-key      <glm2api 的 GLM_API_KEY> \
+  --deepseek-key <deeperseeker 的 DEEPSEEKER_API_KEY> \
+  --kimi-key     <kimi2api 的 OPENAI_API_KEY> \
+  --doubao-key   <doubao2api 的 DOUBAO_API_KEY> \
+  --container new-api
+```
+
+脚本会自动完成：备份 DB → 停容器 → **幂等清理旧适配器渠道**（按 base_url 匹配，
+不依赖渠道名）→ 建 4 个 free-chat 渠道（GLM/DeepSeek 主用 priority=10、
+Kimi/豆包备用 -1）+ 2 个 free-image 渠道 → 写入自愈参数（RetryTimes=3、
+自动禁用/启用、阈值 5、码 401/403/429）→ 打印**网关 token** → 启容器。
+
+把打印出的 `GATEWAY_TOKEN` 记好：它是客户端用的 key，也是 ops-console
+的 `GATEWAY_KEY` 环境变量值。**无需进 new-api 网页后台手点**。
+（若想复用旧机器配置：直接把旧机 `one-api.db` 拷来当第 6 步产物，
+自查 base_url 是容器名、渠道 key 对应即可。）
 
 ## 7. 粘贴四家网页登录态（在运维台完成）
 
