@@ -7,3 +7,12 @@ data/
 *.egg-info/
 .env
 .generated-creds.txt
+
+# 第三方上游克隆（部署时按 docs/fresh-machine-setup.md 另行拉取，不入库）
+deeperseeker/
+kimi2api/
+wcx-doubao2api/
+fly143-deepseek/
+hellogml/
+izaart95/
+ref-doubao-freeapi/
