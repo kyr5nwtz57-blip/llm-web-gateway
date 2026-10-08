@@ -189,7 +189,7 @@ def _conn_info():
     import os
     return [
         {"group": "使用", "name": "全模态网关（OpenAI 兼容）", "url": "http://127.0.0.1:3000/v1",
-         "key": os.getenv("GATEWAY_KEY", ""), "note": "模型 free-chat / free-image"},
+         "key": os.getenv("GATEWAY_KEY", ""), "note": "模型名统一用 free-chat（聊天/生图/生视频同一名字）"},
         {"group": "使用", "name": "全模态网关（Anthropic）", "url": "http://127.0.0.1:3000",
          "key": os.getenv("GATEWAY_KEY", ""), "note": "CCswitch Claude 用，路径 /v1/messages"},
         {"group": "维护", "name": "统一运维台（本页）", "url": "http://127.0.0.1:3000/ops/",

@@ -8,18 +8,22 @@
 ## 架构
 
 ```
-harness / CLI（一个 key，模型名 free-chat / free-image）
+harness / CLI（一个 key，模型名统一 free-chat）
         │  http://127.0.0.1:3000
         ▼
    Caddy（唯一入口，回环）
-        ├─ /ops/*                  → ops-console（统一运维台）
-        ├─ /v1/videos/generations  → glm2api（new-api 无视频端点）
-        └─ 其余                     → new-api
+        ├─ /ops/*                        → ops-console（统一运维台）
+        ├─ /v1/images/generations        → glm2api（直连，任意模型名可用）
+        ├─ /v1/videos/generations        → glm2api（new-api 无视频端点）
+        └─ 其余                           → new-api
                                         ├─ glm2api        智谱清言（对话/工具/检索/生图/生视频）
                                         ├─ deeperseeker   DeepSeek 网页版（对话/工具/推理）
                                         ├─ kimi2api       Kimi 网页版（对话/检索）
                                         └─ doubao2api     豆包网页版（对话/生图）
 ```
+
+调用哪个能力（聊天 / 生图 / 生视频）由 LLM 按任务自动选择端点，
+用户侧只认一个模型名 `free-chat`（历史别名 `free-image` 兼容保留）。
 
 - 全部容器在 Docker 网络 `omni-net` 内以容器名互访；宿主只暴露 `127.0.0.1:3000`。
 - new-api 侧：`free-chat` 主用 GLM+DeepSeek（priority 10）、备用 Kimi+豆包（priority -1）；`free-image` 主用 GLM。
