@@ -36,6 +36,7 @@ harness / CLI（一个 key，模型名统一 free-chat）
 用户侧只认一个模型名 `free-chat`（历史别名 `free-image` 兼容保留）。
 
 - 全部容器在 Docker 网络 `omni-net` 内以容器名互访；宿主只暴露 `127.0.0.1:3000`。
+- 运维台（`/ops/`）内嵌：**渠道管理**（中转站/官方 API 自助接入，约 60 秒生效）· **自动调权**（按实测速度，五家平权起步）· **每日自动备份**（SQLite 在线备份）· **一键体检**（21 项本机探测）· **用量统计** · 容器看日志/重启。
 - new-api 侧：五家**平权参与** `free-chat`（起步权重各 100），由运维台的**自动调权**按实测耗时自动升降权重——跑得快的多分流、慢/抖的自动降级（夹在 20–300，含平滑防抖），约 60 秒生效；
   某家失败自动禁用、恢复后自动回池（RetryTimes=3，401/403/429 触发）。
 - 生图/生视频走 `media-router`：生图豆包优先→GLM 兜底；生视频 GLM 优先→豆包兜底。
@@ -46,7 +47,7 @@ harness / CLI（一个 key，模型名统一 free-chat）
 |---|---|---|
 | `glm2api/` | 智谱清言适配器（自写，协议参考 HelloGML） | 本仓库 |
 | `doubao2api/` | 豆包适配器（自写壳）+ `doubao2api/` 内嵌客户端包 | 壳：本仓库；客户端包：fork 自 [wangchuxiaoji-oss/doubao2api](https://github.com/wangchuxiaoji-oss/doubao2api)（Apache-2.0，LICENSE 随附） |
-| `ops-console/` | 统一运维台（状态灯/换凭证/连接信息） | 本仓库 |
+| `ops-console/` | 统一运维台（状态灯/换凭证/渠道管理/自动调权/每日备份/一键体检/用量统计） | 本仓库 |
 | `caddy/` | 入口路由 | 本仓库 |
 | `deeperseeker` / `kimi2api` 镜像 | DeepSeek / Kimi 适配器 | 上游开源项目，见部署章节 |
 

@@ -21,3 +21,5 @@
 - ops-console：`OPS_ADMIN_PASSWORD`、`GATEWAY_KEY`（new-api 网关 key，用于页面展示）；自动调权可选 `AUTOSCALE_ENABLED` / `AUTOSCALE_INTERVAL_SEC` / `AUTOSCALE_WINDOW_MIN`（默认开、300s、90 分钟）
 - media-router：`SERVICE_TOKEN`（与服务 token 同值）
 - omni-caddy：无（纯路径路由；媒体转发已移到 media-router）
+
+> media-router 生图链：内置模型名（free-chat/free-image）豆包→GLM→new-api 兜底；非内置模型名（运维台添加的渠道）只走 new-api。

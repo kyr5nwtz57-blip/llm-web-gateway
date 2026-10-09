@@ -22,7 +22,7 @@
 | 去哪 | https://open.bigmodel.cn → 左侧「API Keys」 |
 | 取什么 | 通用 API key，形如 `32位hex.16位字符` |
 | ⚠️ 关键 | **不要**用 Coding Plan 专用 key（base_url 带 `/coding/`，只吃套餐额度，欠费即 1113） |
-| 放哪 | 不在运维台；用于 new-api 的 `GLM-4.7-Flash官方` 渠道 |
+| 放哪 | 运维台「渠道管理」→ 编辑 `GLM-4.7-Flash官方` 渠道 → 粘贴新 key 保存（约 60 秒生效） |
 
 ## 三、运维台登录码 & 网关 key（本机自设，不进 Git）
 
