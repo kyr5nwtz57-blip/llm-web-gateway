@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -11,6 +12,8 @@ import docker
 import httpx
 from fastapi import FastAPI, Form, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+
+import autoscale
 
 ADMIN_PASSWORD = os.getenv("OPS_ADMIN_PASSWORD", "")
 COOKIE_NAME = "ops_session"
@@ -167,6 +170,28 @@ def infer_state(http, cred, err):
 
 
 app = FastAPI(title="ops-console")
+
+
+@app.on_event("startup")
+async def _startup():
+    autoscale.start()
+
+
+@app.get("/api/autoscale")
+async def api_autoscale(request: Request):
+    if not _authed(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return await asyncio.to_thread(autoscale.report)
+
+
+@app.post("/api/autoscale/run")
+async def api_autoscale_run(request: Request):
+    if not _authed(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        return await asyncio.to_thread(autoscale.run_once, False)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/api/login")
@@ -349,6 +374,12 @@ button.ghost{background:transparent;color:#9aa4b2;border-color:#2c323f}
     <button class="ghost" onclick="load()">刷新状态</button>
   </div>
   <div id="cards"></div>
+  <div class="row" style="margin:20px 0 10px">
+    <h3 style="margin:0;font-size:15px">自动调权（按实测速度，五家平权起步）</h3>
+    <div class="grow"></div>
+    <button class="ghost" onclick="runScale(this)">立即调权一轮</button>
+  </div>
+  <div id="scale"></div>
 </div>
 </div>
 <script>
@@ -401,6 +432,7 @@ async function load(first){
   document.getElementById('login').classList.add('hidden');
   document.getElementById('panel').classList.remove('hidden');
   await loadConn();
+  await loadScale();
   const d=await r.json();
   const box=document.getElementById('cards');
   box.innerHTML='';
@@ -447,6 +479,35 @@ async function save(key,btn){
 function showLogin(){
   document.getElementById('login').classList.remove('hidden');
   document.getElementById('panel').classList.add('hidden');
+}
+async function loadScale(){
+  const r=await fetch('api/autoscale');
+  if(!r.ok)return;
+  const d=await r.json();
+  const box=document.getElementById('scale');
+  let html=`<div class="card">`;
+  const last=d.last_run?new Date(d.last_run*1000).toLocaleTimeString():'—';
+  html+=`<div class="meta" style="margin-bottom:8px">${d.enabled?'✅ 自动调权已启用':'⛔ 已停用'} · 每 ${Math.round(d.interval_sec/60)} 分钟一轮 · 统计窗口 ${d.window_min} 分钟 · 上次运行 ${last}${d.note?' · '+d.note:''}</div>`;
+  if(d.channels&&d.channels.length){
+    html+=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="color:#7dd3fc;text-align:left"><th style="padding:4px 6px">渠道</th><th style="padding:4px 6px">权重</th><th style="padding:4px 6px">窗口样本</th><th style="padding:4px 6px">平均耗时</th></tr>`;
+    d.channels.forEach(c=>{
+      const w=c.old===c.new?`<b>${c.new}</b>`:`${c.old} → <b style="color:#eab308">${c.new}</b>`;
+      const avg=c.avg==null?'—':c.avg+'s';
+      const st=c.status!==1?` <span class="meta">(禁用中)</span>`:'';
+      html+=`<tr style="border-top:1px solid #262b36"><td style="padding:4px 6px">${c.name}${st}</td><td style="padding:4px 6px">${w}</td><td style="padding:4px 6px">${c.n}</td><td style="padding:4px 6px">${avg}</td></tr>`;
+    });
+    html+=`</table>`;
+  } else {
+    html+=`<div class="meta">还没运行过——启动约 20 秒后自动首轮，或点右上「立即调权一轮」。</div>`;
+  }
+  html+=`</div>`;
+  box.innerHTML=html;
+}
+async function runScale(btn){
+  btn.disabled=true;const old=btn.textContent;btn.textContent='调权中…';
+  try{await fetch('api/autoscale/run',{method:'POST'});await loadScale();}
+  finally{btn.disabled=false;btn.textContent=old;}
 }
 load(true);
 </script></body></html>"""

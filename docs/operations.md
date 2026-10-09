@@ -7,7 +7,7 @@
 | `omni-caddy` | 唯一入口，按路径分发 | **127.0.0.1:3000** |
 | `new-api` | 聚合层：渠道/权重/重试/禁用 | 无（内部 3000） |
 | `media-router` | 生图/生视频的双平台故障转移 | 无 |
-| `ops-console` | 运维台（状态灯/换凭证） | 无（经 Caddy 的 `/ops/`） |
+| `ops-console` | 运维台（状态灯/换凭证/自动调权） | 无（经 Caddy 的 `/ops/`） |
 | `glm2api` / `deeperseeker` / `kimi2api` / `doubao2api` | 四家网页适配器 | 无 |
 | `portainer` | Docker 可视化管理（可选） | 127.0.0.1:9000/9443 |
 
@@ -40,11 +40,13 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/ops/    # 200
 
 数据在 new-api 的 DB：`<new-api数据目录>/one-api.db`，`channels` + `abilities` 两张表。
 
-**改任何渠道配置必须走"停→改→启"**：new-api 运行时会把它内存里的整行回写 DB，直接改会被覆盖。
+**实测结论（2026-10-09 探针验证）**：
+- `channels`/`abilities` 两表的改动（含 weight、新增渠道）**不用重启**——new-api 的渠道缓存约 60 秒自动从 DB 重载（`CHANNEL_UPDATE_FREQUENCY`），自动调权就靠这条通道；
+- 但 **`tokens`/`users` 表不随 DB 重载**（实测 7 分钟不生效）——加 token、改用户密码必须停→改→启，或走 new-api 后台。
 
 ```bash
 docker stop new-api
-# 改 DB（channels.priority/weight/status + abilities 同步改）
+# 改 DB（tokens/users 类）
 docker start new-api
 ```
 
@@ -52,8 +54,26 @@ docker start new-api
 - `channels.status`：1=启用，2=手动禁用，3=自动禁用（失败触发）
 - `abilities.enabled` / `abilities.priority` / `abilities.weight`：**new-api 实际按 abilities 路由**，改 channels 必须同步改 abilities，否则不生效
 - `priority`：同层（相同值）才按 weight 分流；不同层时高优先级**完全独占**、低优先级不参与
+- 五家 free-chat 渠道 priority 均为 0（同层平权），权重由自动调权接管
 
 > 一键重建全部渠道（幂等）：`python scripts/init-new-api.py --db <db路径> --glm-key .. --deepseek-key .. --kimi-key .. --doubao-key .. --container new-api`
+
+## 四之二、自动调权（按实测速度，五家平权起步）
+
+运维台内嵌的控制器，每 5 分钟一轮，**全程零模型调用**（只读 new-api 日志表 + 写权重）：
+
+| 项 | 规则 |
+|---|---|
+| 数据源 | new-api 的 `logs` 表近 90 分钟 `free-chat` 请求的真实耗时（`use_time` 秒） |
+| 起步 | 五家平权，权重各 100 |
+| 调整 | 快于池中位数的升权、慢的降权；权重 = 100 × 中位耗时 / 该家耗时，夹在 **20–300** |
+| 防抖 | 新旧 50% 平滑 + 最小变化 10 才写；近 90 分钟样本 < 2 的渠道不动 |
+| 禁用渠道 | 给最低权重 20（恢复后轻载回池） |
+| 生效 | 写 `channels.weight` + `abilities.weight`，约 60 秒经渠道缓存生效（已实测） |
+| 面板 | 运维台「自动调权」区：看每家权重/样本数/平均耗时；可点「立即调权一轮」 |
+| 停用 | 重建 ops-console 时加 `-e AUTOSCALE_ENABLED=false`；改 `AUTOSCALE_INTERVAL_SEC` / `AUTOSCALE_WINDOW_MIN` 可调周期与窗口 |
+
+> 手动改权重会被下一轮自动调权覆盖——要长期固定权重就先停用自动调权。
 
 ## 五、自愈参数（已在库）
 
@@ -113,5 +133,5 @@ docker rm -f glm2api && docker run -d --name glm2api ...（参数见 fresh-machi
 ## 十、安全边界
 
 - 所有服务只绑定 `127.0.0.1`，**局域网/公网都碰不到**；
-- `ops-console` 挂了 docker.sock（用于重启适配器）——它是本机工具，别对外暴露；
+- `ops-console` 挂了 docker.sock（用于重启适配器）与 new-api 数据目录（自动调权读写权重）——它是本机工具，别对外暴露；
 - 仓库不含任何凭证；`data/` 已 gitignore。

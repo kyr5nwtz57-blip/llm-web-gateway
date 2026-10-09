@@ -90,10 +90,12 @@ docker run -d --name deeperseeker --restart unless-stopped --network omni-net \
 docker run -d --name new-api --restart unless-stopped --network omni-net \
   -v <宿主绝对路径>/new-api-data:/data calciumion/new-api:latest
 
-# 5.3 运维台（挂四家数据卷 + docker.sock，无宿主端口）
+# 5.3 运维台（挂四家数据卷 + new-api 数据目录 + docker.sock，无宿主端口）
+# 挂 new-api 数据目录是为了「自动调权」：读请求日志算耗时、写渠道权重（约 60 秒自动生效）
 docker run -d --name ops-console --restart unless-stopped --network omni-net \
   -v "$PWD/data/glm2api:/data/glm" -v "$PWD/data/doubao2api:/data/doubao" \
   -v "$PWD/data/deeperseeker:/data/deepseek" -v "$PWD/data/kimi2api:/data/kimi" \
+  -v <宿主绝对路径>/new-api-data:/data/newapi \
   -v //var/run/docker.sock:/var/run/docker.sock \
   -e OPS_ADMIN_PASSWORD=<OPS_ADMIN_PASSWORD> -e GATEWAY_KEY=<新网关token> \
   ops-console:latest
