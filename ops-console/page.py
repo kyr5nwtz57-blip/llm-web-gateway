@@ -1,6 +1,7 @@
 PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>全模态网关 · 统一运维台</title>
+<link rel="icon" href="data:,">
 <style>
 body{font-family:system-ui,-apple-system,sans-serif;background:#0f1115;color:#e6e6e6;margin:0;padding:24px}
 .wrap{max-width:900px;margin:0 auto}
@@ -334,7 +335,7 @@ async function enableCh(id,btn){
 async function loadUsage(){
   let d;try{d=await jget('api/usage');}catch(e){return;}
   const box=document.getElementById('usage');
-  let html=`<div class="card"><div class="meta" style="margin-bottom:6px">今天（${d.today}）：共 ${d.today_total} 次请求 · 词元 ${d.today_tokens}</div>`;
+  let html=`<div class="card"><div class="meta" style="margin-bottom:6px">今天（${esc(d.today)}）：共 ${d.today_total} 次请求 · 词元 ${d.today_tokens}</div>`;
   if(d.by_channel&&d.by_channel.length){
     html+=`<table><tr><th>渠道</th><th>今天请求</th><th>词元</th><th>平均耗时</th></tr>`;
     d.by_channel.forEach(c=>{
@@ -343,7 +344,7 @@ async function loadUsage(){
     html+=`</table>`;
   }else{html+=`<div class="meta">今天还没有请求记录。</div>`;}
   if(d.days&&d.days.length){
-    html+=`<div class="meta" style="margin-top:8px">近 7 天：`+d.days.map(x=>`${x.day} <b>${x.n}</b>`).join(' · ')+`</div>`;
+    html+=`<div class="meta" style="margin-top:8px">近 7 天：`+d.days.map(x=>`${esc(x.day)} <b>${x.n}</b>`).join(' · ')+`</div>`;
   }
   html+=`</div>`;
   box.innerHTML=html;
@@ -395,7 +396,7 @@ async function loadChannels(){
     const badge={ '轮换池':'#4ade80','备用':'#eab308','独立':'#7dd3fc'}[c.place]||'#9aa4b2';
     html+=`<tr id="chrow-${c.id}">
       <td>${esc(c.name)}<div class="hint">${esc(c.base_url)} · ${esc(c.type_name)}</div></td>
-      <td><span style="color:${badge}">${c.place}</span>${c.place==='轮换池'?' <span class="meta">w'+c.weight+'</span>':''}</td>
+      <td><span style="color:${badge}">${esc(c.place)}</span>${c.place==='轮换池'?' <span class="meta">w'+c.weight+'</span>':''}</td>
       <td class="meta">${modelTxt}</td>
       <td>${stMap[c.status]||c.status}</td>
       <td>${c.today}</td>

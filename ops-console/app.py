@@ -366,15 +366,19 @@ def _cred_warn(key, value):
         if exp and exp < time.time():
             return "该凭证已过期（exp 已过），请重新登录获取"
     elif key == "deepseek":
+        if v.startswith("{") or '"value"' in v:
+            return "看起来把整段 JSON 粘进来了——只粘 value 字段的值（用 copy(JSON.parse(localStorage.getItem('userToken')).value)）"
+        if len(v) < 30:
+            return "长度偏短，请核对是否取到 userToken 的完整 value"
         p = _jwt_payload(v)
-        if p is None:
-            return "格式不像 DeepSeek userToken（应为 JWT），确认用 copy(JSON.parse(localStorage.getItem('userToken')).value) 取的"
-        exp = p.get("exp")
-        if exp and exp < time.time():
+        if p and p.get("exp") and p["exp"] < time.time():
             return "该 token 已过期（exp 已过），请重新登录获取"
     elif key == "kimi":
         if len(v) < 40:
             return "长度偏短——Kimi 要的是 localStorage 的 refresh_token（不是 access_token）"
+        p = _jwt_payload(v)
+        if p and p.get("exp") and p["exp"] < time.time():
+            return "该 refresh_token 已过期（exp 已过），请重新登录获取"
     elif key == "doubao":
         if len(v) < 10:
             return "长度偏短，应为 doubao.com 的 sessionid 值"
@@ -471,6 +475,8 @@ async def api_infra(request: Request):
 async def api_restart(name: str, request: Request):
     if not _authed(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not re.match(r"^[a-z0-9][a-z0-9._-]*$", name) or ".." in name:
+        return JSONResponse({"error": "容器名不合法"}, status_code=400)
     if name not in _restart_whitelist():
         return JSONResponse({"error": "不允许重启该容器"}, status_code=400)
 
@@ -492,6 +498,8 @@ async def api_restart(name: str, request: Request):
 async def api_logs(name: str, request: Request, lines: int = 80):
     if not _authed(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not re.match(r"^[a-z0-9][a-z0-9._-]*$", name) or ".." in name:
+        return JSONResponse({"error": "容器名不合法"}, status_code=400)
     if name not in _logs_whitelist():
         return JSONResponse({"error": "不允许读取该容器"}, status_code=400)
     lines = max(10, min(300, lines))

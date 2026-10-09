@@ -80,6 +80,7 @@ docker run -d --name kimi2api --restart unless-stopped --network omni-net \
   -v "$PWD/data/kimi2api:/app/data" \
   -e ADMIN_PASSWORD=<KIMI_ADMIN_PASSWORD> -e OPENAI_API_KEY=<KIMI_API_KEY> \
   -e SESSION_SECRET=<KIMI_SESSION_SECRET> -e SECURE_COOKIES=false \
+  -e TZ=Asia/Shanghai \
   kimi2api:latest
 
 docker run -d --name deeperseeker --restart unless-stopped --network omni-net \
@@ -114,10 +115,15 @@ docker run -d --name media-router --restart unless-stopped --network omni-net \
   -e SERVICE_TOKEN=<第 4 步统一的服务 token> media-router:latest
 
 # 5.6（可选）portainer：可视化 Docker 管理，装了运维台体检会多一项；不装不影响
-# docker run -d --name portainer --restart unless-stopped --network omni-net \
-#   -p 127.0.0.1:9000:9000 -v //var/run/docker.sock:/var/run/docker.sock \
+# docker run -d --name portainer --restart unless-stopped \
+#   -p 127.0.0.1:9000:9000 -p 127.0.0.1:9443:9443 \
+#   -v //var/run/docker.sock:/var/run/docker.sock \
 #   portainer/portainer-ce:latest
 ```
+
+> 以上每条 `docker run` 都可追加 `--log-opt max-size=50m --log-opt max-file=3`
+> 给容器日志封顶（防长期运行日志无上限增长；也可在 Docker Desktop 的 daemon.json
+> 里设默认 log-opts 一次性生效于此后新建的容器）。不加不影响功能。
 
 > 整个系统只需**一个 token**：它同时是 new-api 网关 key、四家适配器 env
 > （`GLM_API_KEY`/`DOUBAO_API_KEY`/`KIMI` 的 `OPENAI_API_KEY`/`DEEPSEEKER_API_KEY`）、

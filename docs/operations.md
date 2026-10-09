@@ -125,7 +125,7 @@ docker start new-api glm2api deeperseeker kimi2api doubao2api
 | 现象 | 定位 | 处置 |
 |---|---|---|
 | 运维台整个打不开 | Docker Desktop 是否启动 | 启动后约 1 分钟全部容器自恢复 |
-| 不知道哪里坏了 | 面板「一键体检」 | 21 项全本机探测（不打模型接口），照着红叉修 |
+| 不知道哪里坏了 | 面板「一键体检」 | 全项本机探测（不打模型接口），照着红叉修 |
 | 整个网关不通 | 面板「基础组件」/`docker ps` | 面板点「重启」，或 `docker start <名>` |
 | 只有某家不行 | 运维台看该家灯 | 🔴换凭证 / 🟡等限流 / ⚪等额度；可点「看日志」 |
 | 全部报 401 | 网关 key 不对 | 跑体检看「单 key 全链路一致」行，比对「连接信息」表 |
@@ -146,6 +146,8 @@ docker rm -f glm2api && docker run -d --name glm2api ...（参数见 fresh-machi
 ```
 
 **注意**：`docker restart` **不带新代码**，必须 `build` 后重建容器。改完记得 `git add/commit/push` 同步到仓库。
+
+重建时建议带 `--log-opt max-size=50m --log-opt max-file=3`（容器日志封顶）。本机已在 `~/.docker/daemon.json` 设了默认 log-opts 与构建缓存上限（5GB）——**下次 Docker 引擎重启（如开机）后，此后新建的容器自动继承**，无需手动加参。
 
 ## 九、Docker 开机自启
 
