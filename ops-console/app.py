@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -326,11 +327,31 @@ def _write_credential(key, value):
         con.commit()
         con.close()
     elif key == "kimi":
-        d = json.loads(KIMI_JSON.read_text(encoding="utf-8"))
-        accounts = d.get("accounts", [])
-        if not accounts:
-            raise ValueError("Kimi 账号不存在，请先在适配器初始化")
-        a = accounts[0]
+        # 自愈：文件缺失/损坏时按适配器（kimi2api kimi_account_store.py）规范重建，
+        # 保证路径就绪时保存永不因文件缺失而失败（device_id 留空由适配器加载时补发）
+        try:
+            d = json.loads(KIMI_JSON.read_text(encoding="utf-8"))
+            if not isinstance(d, dict):
+                d = {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            d = {}
+        accounts = d.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        if accounts and isinstance(accounts[0], dict):
+            a = accounts[0]
+        else:
+            a = {
+                "id": secrets.token_hex(16),
+                "name": "Kimi 1",
+                "enabled": True,
+                "device_id": "",
+                "created_at": time.time(),
+            }
+            accounts = [a]
+        d["version"] = d.get("version", 1)
+        d["accounts"] = accounts
+        d["updated_at"] = time.time()
         a["raw_token"] = value
         a["cached_access_token"] = ""
         a["cached_access_expires_at"] = 0

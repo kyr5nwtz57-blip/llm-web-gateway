@@ -31,6 +31,7 @@ td{padding:5px 6px;border-top:1px solid #262b36;vertical-align:middle}
 details{background:#171a21;border:1px solid #262b36;border-radius:12px;padding:12px 16px;margin-top:12px}
 summary{cursor:pointer;color:#9aa4b2;font-size:14px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal.hidden{display:none}
 .modal .box{background:#141720;border:1px solid #2c323f;border-radius:12px;padding:16px;width:min(860px,92vw);max-height:82vh;display:flex;flex-direction:column}
 pre{background:#0b0d12;border:1px solid #262b36;border-radius:8px;padding:10px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;flex:1}
 .hint{color:#666;font-size:11px;margin-top:4px;font-family:ui-monospace,monospace;word-break:break-all}
@@ -148,7 +149,9 @@ function copyKey(btn){copyValue(btn.previousElementSibling.dataset.full||'',btn)
 async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 async function jpost(u,body){const r=await fetch(u,{method:'POST',body});return r.json();}
 function showModal(title,html){document.getElementById('modalTitle').textContent=title;document.getElementById('modalBody').innerHTML=html;document.getElementById('modal').classList.remove('hidden');}
-function closeModal(){document.getElementById('modal').classList.add('hidden');}
+function closeModal(){const m=document.getElementById('modal');if(m)m.classList.add('hidden');}
+document.getElementById('modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 function login(){
   const value=document.getElementById('pw').value;
   const body=new URLSearchParams({password:value});
