@@ -112,14 +112,31 @@ def _free_chat_channels(con):
 
 
 def _window_stats(con, since):
+    # 只统计"有产出"的请求（completion_tokens > 0）作为耗时样本——
+    # 0 token 的假成功（空回复）绝不能算"快"，否则会把坏渠道误升权。
     rows = con.execute(
         """SELECT channel_id, COUNT(*), AVG(use_time)
            FROM logs
            WHERE type = 2 AND model_name = 'free-chat' AND created_at >= ?
+             AND completion_tokens > 0
            GROUP BY channel_id""",
         (since,),
     ).fetchall()
     return {r[0]: {"n": r[1], "avg": float(r[2] or 0)} for r in rows}
+
+
+def _silent_fail_counts(con, since):
+    """窗口内"0 token 的假成功"按失败计（客户端主动断开 client_gone 的除外）。"""
+    rows = con.execute(
+        """SELECT channel_id, COUNT(*)
+           FROM logs
+           WHERE type = 2 AND model_name = 'free-chat' AND created_at >= ?
+             AND completion_tokens = 0
+             AND (other IS NULL OR other NOT LIKE '%client_gone%')
+           GROUP BY channel_id""",
+        (since,),
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
 
 
 def _fail_counts(since):
@@ -210,6 +227,8 @@ def run_once(dry_run=False, reason="auto"):
         channels = _free_chat_channels(con)
         stats = _window_stats(con, since)
         fails = _fail_counts(since)
+        for cid, n in _silent_fail_counts(con, since).items():
+            fails[cid] = fails.get(cid, 0) + n
         targets, med = compute_targets(stats, fails, channels)
 
         report_channels = []

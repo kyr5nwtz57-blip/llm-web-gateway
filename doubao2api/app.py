@@ -47,8 +47,33 @@ async def _stream_text(text):
     cookies = {"sessionid": sessionid}
     async with DoubaoChatClient(cookies=cookies, ms_token="", captcha_handler=None) as client:
         async for msg in client.chat_stream_samantha(text=text):
+            # 2005 = 上游错误事件（如风控限流 710022004 rate limited）。
+            # 绝不静默吞掉——否则会变成"空回复成功"，骗过故障转移与自动调权。
+            if getattr(msg, "event_type", 0) == 2005:
+                detail = str((getattr(msg, "raw", None) or {}).get("event_data", ""))[:300]
+                raise DoubaoChatError(f"upstream error event: {detail}")
             if getattr(msg, "is_answer_chunk", False) and msg.text:
                 yield msg.text
+
+
+def _is_rate_limit_error(exc) -> bool:
+    s = str(exc)
+    return any(k in s for k in ("710022004", "710022002", "rate limited", "Rate limited"))
+
+
+def _err_status(exc) -> int:
+    return 429 if _is_rate_limit_error(exc) else 502
+
+
+def _chunk_text(piece: str) -> str:
+    return json.dumps(
+        {
+            "object": "chat.completion.chunk",
+            "model": "doubao",
+            "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}],
+        },
+        ensure_ascii=False,
+    )
 
 
 @app.get("/health")
@@ -64,6 +89,18 @@ async def models(authorization: str = Header(default="")):
     return {"object": "list", "data": [{"id": "doubao", "object": "model", "owned_by": "doubao-web"}]}
 
 
+async def _collect_text(text: str) -> str:
+    """完整跑一次上游调用，返回全部正文。出错或空答复都抛 DoubaoChatError，
+    绝不返回"空成功"——否则会骗过 new-api 的故障转移与自动调权。"""
+    parts = []
+    async with _sem:
+        async for piece in _stream_text(text):
+            parts.append(piece)
+    if not parts:
+        raise DoubaoChatError("upstream returned empty response (no content)")
+    return "".join(parts)
+
+
 @app.post("/v1/chat/completions")
 async def chat(request: Request, authorization: str = Header(default="")):
     if not _authorized(authorization):
@@ -72,50 +109,30 @@ async def chat(request: Request, authorization: str = Header(default="")):
     text = _flatten(payload.get("messages", []))
     do_stream = bool(payload.get("stream"))
 
-    async def gen():
-        async with _sem:
-            got_any = False
-            try:
-                async for piece in _stream_text(text):
-                    got_any = True
-                    chunk = json.dumps(
-                        {
-                            "object": "chat.completion.chunk",
-                            "model": "doubao",
-                            "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}],
-                        },
-                        ensure_ascii=False,
-                    )
-                    yield f"data: {chunk}\n\n"
-            except (DoubaoChatError, RuntimeError) as exc:
-                err = json.dumps(
-                    {"object": "chat.completion.chunk", "model": "doubao",
-                     "choices": [{"index": 0, "delta": {"content": f"[doubao error: {exc}]"}, "finish_reason": "stop"}]},
-                    ensure_ascii=False,
-                )
-                yield f"data: {err}\n\n"
-                yield "data: [DONE]\n\n"
-                return
-        end = json.dumps(
-            {"object": "chat.completion.chunk", "model": "doubao",
-             "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+    try:
+        full = await _collect_text(text)
+    except (DoubaoChatError, RuntimeError) as exc:
+        return JSONResponse(
+            {"error": {"message": f"doubao upstream failed: {exc}"}},
+            status_code=_err_status(exc),
         )
-        yield f"data: {end}\n\n"
-        yield "data: [DONE]\n\n"
 
     if do_stream:
+
+        async def gen():
+            yield f"data: {_chunk_text(full)}\n\n"
+            end = json.dumps(
+                {
+                    "object": "chat.completion.chunk",
+                    "model": "doubao",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                }
+            )
+            yield f"data: {end}\n\n"
+            yield "data: [DONE]\n\n"
+
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    full = ""
-    async with _sem:
-        try:
-            async for piece in _stream_text(text):
-                full += piece
-        except (DoubaoChatError, RuntimeError) as exc:
-            return JSONResponse(
-                {"error": {"message": f"doubao upstream failed: {exc}"}},
-                status_code=502,
-            )
     return {
         "object": "chat.completion",
         "model": "doubao",
