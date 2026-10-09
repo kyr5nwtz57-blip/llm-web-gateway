@@ -121,6 +121,7 @@ a{color:#7dd3fc}
       <b>客户端全部 401</b> = 网关 key 不对；用上面「连接信息」表的 key，体检会核对 key 是否全链路一致。<br>
       <b>响应变慢</b> = 网页逆向固有延迟；自动调权几轮后会压慢家、抬快家。<br>
       <b>生视频报积分不足</b> = GLM 每日额度，等次日，非故障。<br>
+      <b>换凭证时 Console 被拦</b> = Chrome/Edge 防粘贴：Console 里手动敲 <code>allow pasting</code> 回车再粘贴；或不用 Console——F12→Application→Local Storage 手抄（DeepSeek 抄 userToken 值里 eyJ 那段、Kimi 抄 refresh_token 整段）；兜底 Network 抓 Authorization。<br>
       详细文档在仓库 docs/（usage / operations / credentials-guide / fresh-machine-setup）。
     </div>
   </details>

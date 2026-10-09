@@ -13,6 +13,20 @@
 | 3 | Kimi | https://www.kimi.com | F12 → Console：`copy(localStorage.getItem('refresh_token'))` | 剪贴板里即为所需。要 **refresh_token**，不要 access_token（后者几小时失效） |
 | 4 | 豆包 | https://www.doubao.com | F12 → Application → Cookies → `doubao.com` | `sessionid` 的 Value（一串字母数字）。有效期约 7–14 天，四家中最短 |
 
+### Console 取法被拦了怎么办（DeepSeek / Kimi 必读）
+
+Chrome / Edge 对"往 Console 粘贴代码"有防自伤拦截（首次不给粘贴），站点反调试也可能把 Console 弄卡。按顺序试，**任一条成功即可**：
+
+1. **解除浏览器粘贴锁（最常用）**：在 Console 里**手动敲**（不能复制）——
+   `allow pasting` 回车 → 再粘贴原命令。每个浏览器只做一次。
+2. **不开 Console，手抄（永远可用）**：F12 → **Application**（应用）→ Storage → Local Storage → 选中对应站点，按下面取值：
+   - DeepSeek：找 key `userToken`，双击它的值 → 是 `{"value":"eyJ...","__version":...}` 这样的 JSON → **只复制 `"value":"` 与末尾 `"` 之间那一段**（不要花括号、不要引号、不要 `value` 字样）。
+   - Kimi：找 key `refresh_token`，它的值本身就是凭证，整段复制。
+3. **Network 抓包（前两条都不行时的兜底）**：F12 → Network → 刷新页面并随便发一条消息 → 找到 `chat/completion` 之类的请求 → Request Headers 里 `Authorization: Bearer` 后面那串（DeepSeek 用这个）。
+4. **Console 一打开就卡死/断点乱跳**（站点反调试）：别硬刚——直接用第 2 条 Application 手抄；或用 Firefox（粘贴只弹一次确认，点"允许"即可）。
+
+> GLM 与豆包本来就走 Application → Cookies，不涉及 Console，不受影响。
+
 取到后：打开运维台 `http://127.0.0.1:3000/ops/` → 对应行「更换凭证」→ 粘贴 → 保存（自动重启适配器）。
 
 ## 二、智谱官方 API key（免费 GLM-4.7-Flash，渠道 ch11）
@@ -52,5 +66,5 @@
 ## 五、三条铁律
 
 1. **必须已登录状态取**——未登录取到的是游客凭证，看着像但没用；
-2. **用 Console 的 `copy(...)` 最稳**——不要手敲、不要拖选（会带 `value : "` 多余字符）；
+2. **优先 Console 的 `copy(...)`；被拦就按「Console 被拦了怎么办」走 Application 手抄**——手抄时只复制值本身，不要拖选大段（会带 `value : "` 多余字符）；
 3. **过期来运维台换，别反复重试**——连续失败会触发风控，可能从"过期"升级成"封号"。

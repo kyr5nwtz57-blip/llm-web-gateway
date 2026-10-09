@@ -53,13 +53,13 @@ ADAPTERS = {
         "name": "DeepSeek",
         "port": 4000,
         "container": "deeperseeker",
-        "how": "chat.deepseek.com → F12 → Console 执行：copy(JSON.parse(localStorage.getItem('userToken')).value)",
+        "how": "chat.deepseek.com → F12 → Console 执行：copy(JSON.parse(localStorage.getItem('userToken')).value) ｜ Console 被拦：先手动敲 allow pasting 回车；或 F12→Application→Local Storage→userToken 的值（一整坨 JSON）里只抄 eyJ 开头那一段",
     },
     "kimi": {
         "name": "Kimi",
         "port": 8000,
         "container": "kimi2api",
-        "how": "kimi.com → F12 → Console 执行：copy(localStorage.getItem('refresh_token'))（要 refresh_token，不是 access_token）",
+        "how": "kimi.com → F12 → Console 执行：copy(localStorage.getItem('refresh_token'))（要 refresh_token，不是 access_token）｜ Console 被拦：先手动敲 allow pasting 回车；或 F12→Application→Local Storage→refresh_token 整段手抄",
     },
     "doubao": {
         "name": "豆包",
