@@ -132,7 +132,7 @@ _ERROR_HINT_RE = re.compile(
     re.I,
 )
 _ACCESS_RE = re.compile(r'HTTP/\d\.\d"\s+(\d{3})')
-_BACKUP_NAME_RE = re.compile(r"^one-api-\d{8}-\d{4}\.db$")
+_BACKUP_NAME_RE = re.compile(r"^one-api-\d{8}-\d{4,6}\.db\Z")
 
 
 def _docker_client():
@@ -217,7 +217,7 @@ def infer_state(http, cred, err):
     return "ok", "运行正常"
 
 
-app = FastAPI(title="ops-console")
+app = FastAPI(title="ops-console", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.on_event("startup")
@@ -236,7 +236,7 @@ async def api_login(password: str = Form(...)):
         SESSION_TOKEN,
         max_age=315360000,
         httponly=True,
-        samesite="lax",
+        samesite="strict",
         path="/",
     )
     return resp
@@ -385,7 +385,7 @@ def _cred_warn(key, value):
 async def set_credential(
     key: str,
     request: Request,
-    credential: str = Form(...),
+    credential: str = Form(""),
 ):
     if not _authed(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -516,8 +516,8 @@ async def api_healthcheck(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     checks = []
 
-    def ck(name, ok, detail=""):
-        checks.append({"name": name, "ok": bool(ok), "detail": detail})
+    def ck(name, ok, detail="", optional=False):
+        checks.append({"name": name, "ok": bool(ok), "detail": detail, "optional": optional})
 
     def _ping():
         client = _docker_client()
@@ -545,12 +545,14 @@ async def api_healthcheck(request: Request):
         return out
 
     for n, st in (await asyncio.to_thread(_container_states)).items():
-        ck(f"容器 {n}", st == "running", st)
+        ck(f"容器 {n}", st == "running", st, optional=(n == "portainer"))
 
     code = await _http_code("http://new-api:3000/api/status")
     ck("new-api 接口", code == 200, f"HTTP {code}")
     code = await _http_code("http://omni-caddy/")
-    ck("Caddy 入口", code in (200, 307, 308, 404), f"HTTP {code}")
+    ck("Caddy 入口（容器网内）", code in (200, 307, 308), f"HTTP {code}")
+    code = await _http_code("http://host.docker.internal:3000/")
+    ck("宿主入口 127.0.0.1:3000", code in (200, 307, 308), f"HTTP {code}")
     for key, meta in ADAPTERS.items():
         code = await _alive(meta["container"], meta["port"], _service_key(key))
         ck(f"适配器 {meta['name']}", code == 200, f"HTTP {code}")
@@ -599,19 +601,34 @@ async def api_healthcheck(request: Request):
     rep = autoscale.report()
     if rep["enabled"]:
         age = int(time.time()) - rep["last_run"] if rep["last_run"] else None
-        ck("自动调权", age is not None and age < 4 * autoscale.INTERVAL,
-           f"上次运行 {age} 秒前" if age is not None else "从未运行")
+        n_pool = len(rep.get("channels") or [])
+        ck("自动调权", age is not None and age < 4 * autoscale.INTERVAL and n_pool > 0,
+           f"上次运行 {age} 秒前，池内渠道 {n_pool} 家" if age is not None else "从未运行")
     else:
         ck("自动调权", True, "已暂停（面板设置）")
 
     din = maintenance.disk_info()
     age = int(time.time()) - din["last_backup"] if din.get("last_backup") else None
-    ck("数据库备份", age is not None and age < 2 * 86400,
-       f"最近备份 {age // 3600} 小时前，共 {din['backup_count']} 份" if age is not None else "还没有备份")
+    b_ok, b_detail = False, "还没有备份"
+    if age is not None:
+        items = maintenance.list_backups()["items"]
+        integrity = "?"
+        if items:
+            newest = os.path.join(maintenance.BACKUP_DIR, items[0]["name"])
+            try:
+                con = sqlite3.connect(f"file:{newest}?mode=ro", uri=True)
+                integrity = con.execute("PRAGMA quick_check").fetchone()[0]
+                con.close()
+            except Exception as exc:
+                integrity = f"校验失败: {str(exc)[:60]}"
+        b_ok = age < 2 * 86400 and integrity == "ok"
+        b_detail = (f"最近备份 {age // 3600} 小时前（完整性 {integrity}），"
+                    f"共 {din['backup_count']} 份")
+    ck("数据库备份", b_ok, b_detail)
     free = din.get("disk_free_gb")
     ck("磁盘余量", free is None or free > 10, f"剩余 {free} GB / 共 {din.get('disk_total_gb')} GB")
 
-    return {"checks": checks, "all_ok": all(c["ok"] for c in checks)}
+    return {"checks": checks, "all_ok": all(c["ok"] for c in checks if not c.get("optional"))}
 
 
 @app.get("/api/usage")
@@ -770,10 +787,10 @@ async def api_channels(request: Request):
 @app.post("/api/channels/add")
 async def api_channels_add(
     request: Request,
-    name: str = Form(...),
-    base_url: str = Form(...),
-    key: str = Form(...),
-    mode: str = Form(...),
+    name: str = Form(""),
+    base_url: str = Form(""),
+    key: str = Form(""),
+    mode: str = Form(""),
     upstream_model: str = Form(""),
     own_models: str = Form(""),
     ctype: int = Form(1),
@@ -785,10 +802,12 @@ async def api_channels_add(
     key = key.strip()
     if not name or not key:
         return JSONResponse({"error": "名称与 API Key 不能为空"}, status_code=400)
-    if not re.match(r"^https?://", base_url):
-        return JSONResponse({"error": "Base URL 需以 http:// 或 https:// 开头"}, status_code=400)
+    if not base_url or not re.match(r"^https?://", base_url):
+        return JSONResponse({"error": "Base URL 必填，且需以 http:// 或 https:// 开头"}, status_code=400)
     if ctype not in CHANNEL_TYPES:
         return JSONResponse({"error": "渠道类型不支持"}, status_code=400)
+    if not mode:
+        return JSONResponse({"error": "请选择用途（轮换/备用/独立模型名）"}, status_code=400)
     if mode not in POOL_PRIORITIES:
         return JSONResponse({"error": "用途模式不支持"}, status_code=400)
     if mode in ("pool", "backup"):

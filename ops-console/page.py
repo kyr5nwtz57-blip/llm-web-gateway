@@ -15,7 +15,7 @@ button{cursor:pointer;background:#2563eb;border-color:#2563eb;color:#fff}
 button.ghost{background:transparent;color:#9aa4b2;border-color:#2c323f}
 button.mini{padding:2px 8px;font-size:11px}
 button:disabled{opacity:.5;cursor:default}
-.card{background:#171a21;border:1px solid #262b36;border-radius:12px;padding:15px 16px;margin-bottom:12px}
+.card{background:#171a21;border:1px solid #262b36;border-radius:12px;padding:15px 16px;margin-bottom:12px;overflow-x:auto}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
 .ok{background:#22c55e}.bad{background:#ef4444}.warn{background:#eab308}.quota{background:#e5e7eb}.down{background:#6b7280}.err{background:#f97316}
@@ -41,7 +41,7 @@ a{color:#7dd3fc}
 
 <div id="login" class="login">
   <div class="row">
-    <input id="pw" type="password" placeholder="运维台密码">
+    <input id="pw" type="password" placeholder="运维台密码" onkeydown="if(event.key==='Enter')login()">
     <button onclick="login()">进入</button>
   </div>
 </div>
@@ -137,7 +137,13 @@ function mask(k){return k==='—'?'—':(k.length<=14?k:(k.slice(0,6)+'•••
 function esc(s){return (s??'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function fmt(ts){return ts?new Date(ts*1000).toLocaleString():'—';}
 function fmtB(n){if(n==null)return '—';if(n>1048576)return (n/1048576).toFixed(1)+' MB';if(n>1024)return (n/1024).toFixed(0)+' KB';return n+' B';}
-async function copyText(t){try{await navigator.clipboard.writeText(t);}catch(e){}}
+async function copyValue(t,btn){
+  let ok=false;
+  try{await navigator.clipboard.writeText(t);ok=true;}catch(e){}
+  if(btn){const old=btn.textContent;btn.textContent=ok?'已复制':'复制失败';setTimeout(()=>{btn.textContent=old;},1200);}
+}
+function copyText(btn){copyValue(btn.dataset.c||'',btn);}
+function copyKey(btn){copyValue(btn.previousElementSibling.dataset.full||'',btn);}
 async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 async function jpost(u,body){const r=await fetch(u,{method:'POST',body});return r.json();}
 function showModal(title,html){document.getElementById('modalTitle').textContent=title;document.getElementById('modalBody').innerHTML=html;document.getElementById('modal').classList.remove('hidden');}
@@ -154,7 +160,7 @@ async function load(){
   try{d=await jget('api/status');}catch(e){showLogin();return;}
   document.getElementById('login').classList.add('hidden');
   document.getElementById('panel').classList.remove('hidden');
-  document.getElementById('lastRefresh').textContent='更新于 '+new Date().toLocaleTimeString();
+  document.getElementById('lastRefresh').textContent='全部更新于 '+new Date().toLocaleTimeString();
   await Promise.all([loadConn(),renderCards(d),loadInfra(),loadChannels(),loadScale(),loadUsage(),loadBackup()]);
 }
 function showLogin(){
@@ -167,17 +173,18 @@ async function loadConn(){
   let html=`<h3>连接信息（全部端点与 Key）</h3>`;
   html+=`<table>`;
   d.connections.forEach(c=>{
+    const keyCell = (c.key==='—')
+      ? '<span class="meta">—</span>'
+      : '<span class="kv" data-full="'+esc(c.key)+'">'+mask(c.key)+'</span>'
+        + '<button class="ghost mini" onclick="copyKey(this)">复制Key</button>'
+        + '<button class="ghost mini" onclick="toggleKey(this)">显示</button>';
     html+=`<tr>
       <td style="color:#7dd3fc;width:56px">${c.group}</td>
       <td style="width:170px">${esc(c.name)}</td>
       <td><span style="color:#9aa4b2">${esc(c.url)}</span>
-        <button class="ghost mini" onclick="copyText('${c.url}')">复制</button>
+        <button class="ghost mini" data-c="${esc(c.url)}" onclick="copyText(this)">复制</button>
         <div class="hint">${esc(c.note)}</div></td>
-      <td style="width:230px">
-        <span class="kv" data-full="${esc(c.key)}">${mask(c.key)}</span>
-        <button class="ghost mini" onclick="copyText('${c.key}')">复制Key</button>
-        <button class="ghost mini" onclick="toggleKey(this)">显示</button>
-      </td></tr>`;
+      <td style="width:230px">${keyCell}</td></tr>`;
   });
   html+=`</table>`;
   box.innerHTML=html;
@@ -207,7 +214,7 @@ async function renderCards(d){
         <button class="ghost mini" onclick="restart('${a.container}','${esc(a.name)}',this)">重启</button>
         <button class="ghost mini" onclick="toggle('${a.key}',this)">更换凭证</button>
       </div>
-      <div class="hidden" style="margin-top:12px">
+      <div class="hidden cred-panel" style="margin-top:12px">
         <textarea id="t-${a.key}" placeholder="粘贴该平台新的登录凭证"></textarea>
         <div class="hint">取法：${esc(a.how)}</div>
         <div class="row" style="margin-top:8px">
@@ -221,8 +228,8 @@ async function renderCards(d){
   });
 }
 function toggle(key,btn){
-  const card=btn.closest('.card').querySelector('.hidden');
-  card.classList.toggle('hidden');
+  const panel=btn.closest('.card').querySelector('.cred-panel');
+  if(panel)panel.classList.toggle('hidden');
 }
 async function save(key,btn){
   const val=document.getElementById('t-'+key).value;
@@ -234,7 +241,7 @@ async function save(key,btn){
     const d=await jpost('api/credential/'+key,body);
     if(d.success){msg.textContent='✅ 已保存，适配器已重启，稍后确认变绿。'+(d.warn?'（提示：'+d.warn+'）':'');}
     else if(d.warning){msg.textContent='⚠️ '+d.warning;}
-    else{msg.textContent='❌ '+(d.error||'失败');}
+    else{msg.textContent='❌ '+(d.error||(Array.isArray(d.detail)&&d.detail[0]&&d.detail[0].msg)||'失败');}
   }finally{btn.disabled=false;}
 }
 async function loadInfra(){
@@ -344,7 +351,7 @@ async function loadUsage(){
 async function loadBackup(){
   let d;try{d=await jget('api/backup');}catch(e){return;}
   const box=document.getElementById('backup');
-  let html=`<div class="card"><div class="meta" style="margin-bottom:6px">每日自动备份 1 次（保留最近 ${d.keep} 份，用 SQLite 在线备份，WAL 安全）· 目录：<span class="hint">${esc(d.dir)}</span></div>`;
+  let html=`<div class="card"><div class="meta" style="margin-bottom:4px">每日自动备份 1 次（保留最近 ${d.keep} 份，SQLite 在线备份、WAL 安全）——下载即可，不用自己进目录</div><div class="hint" style="margin-bottom:6px">容器内路径 ${esc(d.dir)}（宿主机上就是 new-api 数据目录下的 backups 文件夹）</div>`;
   if(d.items&&d.items.length){
     html+=`<table><tr><th>文件</th><th>大小</th><th>时间</th><th></th></tr>`;
     d.items.slice(0,8).forEach(b=>{
@@ -370,7 +377,8 @@ async function doHealth(btn){
     const d=await jpost('api/healthcheck');
     let html=`<table style="width:100%"><tr><th>检查项</th><th>结果</th><th>详情</th></tr>`;
     d.checks.forEach(c=>{
-      html+=`<tr><td>${esc(c.name)}</td><td>${c.ok?'<span class="chk">✅ 通过</span>':'<span class="nox">❌ 异常</span>'}</td><td class="meta">${esc(c.detail||'')}</td></tr>`;
+      const verdict=c.ok?'<span class="chk">✅ 通过</span>':(c.optional?'<span class="meta">⚠️ 未装/未运行（可选，不阻塞）</span>':'<span class="nox">❌ 异常</span>');
+      html+=`<tr><td>${esc(c.name)}</td><td>${verdict}</td><td class="meta">${esc(c.detail||'')}</td></tr>`;
     });
     html+=`</table><div class="meta" style="margin-top:8px">体检全程只在本机内部探测，不调用任何模型接口。</div>`;
     showModal('一键体检结果'+(d.all_ok?'：全部通过 ✅':'：有异常 ❌'),html);
@@ -383,7 +391,7 @@ async function loadChannels(){
   let html=`<div class="card"><table><tr><th>渠道</th><th>用途</th><th>模型</th><th>状态</th><th>今日</th><th></th></tr>`;
   d.channels.forEach(c=>{
     let modelTxt=esc(c.models);
-    if(c.mapping){try{const m=JSON.parse(c.mapping);const pairs=Object.entries(m).map(([k,v])=>k+' ← '+v);if(pairs.length)modelTxt=pairs.join('；');}catch(e){}}
+    if(c.mapping){try{const m=JSON.parse(c.mapping);const pairs=Object.entries(m).map(([k,v])=>esc(k)+' ← '+esc(v));if(pairs.length)modelTxt=pairs.join('；');}catch(e){}}
     const badge={ '轮换池':'#4ade80','备用':'#eab308','独立':'#7dd3fc'}[c.place]||'#9aa4b2';
     html+=`<tr id="chrow-${c.id}">
       <td>${esc(c.name)}<div class="hint">${esc(c.base_url)} · ${esc(c.type_name)}</div></td>
@@ -395,7 +403,7 @@ async function loadChannels(){
         <button class="ghost mini" onclick="chTest(${c.id},this)">测试</button>
         <button class="ghost mini" onclick="chEdit(${c.id})">编辑</button>
         <button class="ghost mini" onclick="chStatus(${c.id},${c.status===1},this)">${c.status===1?'停用':'启用'}</button>
-        <button class="ghost mini" onclick="chDel(${c.id},'${esc(c.name)}')">删除</button>
+        <button class="ghost mini" data-id="${c.id}" data-name="${esc(c.name)}" onclick="chDel(this)">删除</button>
       </td></tr>
       <tr id="chedit-${c.id}" class="hidden"><td colspan="6">
         <div class="row">
@@ -413,7 +421,11 @@ async function loadChannels(){
   html+=`</table></div>`;
   box.innerHTML=html;
 }
-function toggleAdd(){document.getElementById('addch').classList.toggle('hidden');}
+function toggleAdd(){
+  const f=document.getElementById('addch');
+  f.classList.toggle('hidden');
+  if(!f.classList.contains('hidden'))document.getElementById('ch-msg').textContent='';
+}
 function chMode(){
   const mode=document.querySelector('input[name=chmode]:checked').value;
   document.getElementById('ch-up-row').classList.toggle('hidden',mode==='own');
@@ -435,7 +447,7 @@ async function addChannel(btn){
   try{
     const d=await jpost('api/channels/add',params);
     if(d.success){msg.textContent='✅ '+d.note;['ch-name','ch-url','ch-key','ch-upstream','ch-own'].forEach(i=>document.getElementById(i).value='');await loadChannels();}
-    else msg.textContent='❌ '+(d.error||'失败');
+    else msg.textContent='❌ '+(d.error||(Array.isArray(d.detail)&&d.detail[0]&&d.detail[0].msg)||'失败');
   }finally{btn.disabled=false;}
 }
 function chEdit(id){document.getElementById('chedit-'+id).classList.toggle('hidden');}
@@ -457,11 +469,13 @@ async function chStatus(id,isOn,btn){
   btn.disabled=true;
   const params=new URLSearchParams({enabled:String(!isOn)});
   try{
-    await jpost('api/channels/set_status/'+id,params);
+    const d=await jpost('api/channels/set_status/'+id,params);
+    if(!d.success)alert('失败：'+(d.error||'未知错误'));
     await loadChannels();
   }finally{btn.disabled=false;}
 }
-async function chDel(id,name){
+async function chDel(btn){
+  const id=btn.dataset.id,name=btn.dataset.name;
   if(!confirm('删除渠道「'+name+'」？删除后其请求将改走其他渠道（约 60 秒生效）。'))return;
   const d=await jpost('api/channels/delete/'+id);
   alert(d.success?('已删除：'+d.deleted):('失败：'+(d.error||'')));
@@ -471,19 +485,20 @@ async function chTest(id,btn){
   btn.disabled=true;const old=btn.textContent;btn.textContent='…';
   try{
     const d=await jpost('api/channels/test/'+id);
-    alert((d.ok?'✅ ':'❌ ')+d.detail);
+    alert((d.ok?'✅ ':'❌ ')+(d.detail||d.error||'未知错误'));
   }finally{btn.disabled=false;btn.textContent=old;}
 }
 setInterval(async ()=>{
   if(document.getElementById('panel').classList.contains('hidden'))return;
   if(document.hidden)return;
   if(!document.getElementById('auto').checked)return;
+  if(document.querySelector('#cards .cred-panel:not(.hidden)'))return;
   const openTA=[...document.querySelectorAll('textarea')].some(t=>t.closest('.hidden')===null&&t.value.trim()!=='');
   if(openTA)return;
   try{
     const d=await jget('api/status');
     await Promise.all([renderCards(d),loadInfra(),loadScale()]);
-    document.getElementById('lastRefresh').textContent='更新于 '+new Date().toLocaleTimeString();
+    document.getElementById('lastRefresh').textContent='状态区更新于 '+new Date().toLocaleTimeString();
   }catch(e){}
 },30000);
 load().catch(()=>showLogin());

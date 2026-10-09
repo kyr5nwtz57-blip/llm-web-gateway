@@ -12,14 +12,16 @@
 | deeperseeker | deeperseeker:latest | 4000 | 无 |
 | kimi2api | kimi2api:latest | 8000 | 无 |
 | doubao2api | doubao2api:latest | 8000 | 无 |
+| portainer（可选） | portainer/portainer-ce:latest | 9000/9443 | 127.0.0.1:9000 / 127.0.0.1:9443 |
 
 关键环境变量（值不写入仓库）：
 - glm2api：`GLM_API_KEY`（外部服务 key）、`GLM_ADMIN_PASSWORD`
 - doubao2api：`DOUBAO_API_KEY`、`DOUBAO_ADMIN_PASSWORD`
 - kimi2api：`OPENAI_API_KEY`、`ADMIN_PASSWORD`、`SESSION_SECRET`、`SECURE_COOKIES=false`
-- deeperseeker：`DEEPSEEKER_API_KEY`、`DEEPSEEKER_ADMIN_USER`、`DEEPSEEKER_ADMIN_PASSWORD`
-- ops-console：`OPS_ADMIN_PASSWORD`、`GATEWAY_KEY`（new-api 网关 key，用于页面展示）；自动调权可选 `AUTOSCALE_ENABLED` / `AUTOSCALE_INTERVAL_SEC` / `AUTOSCALE_WINDOW_MIN`（默认开、300s、90 分钟）
+- deeperseeker：`DEEPSEEKER_API_KEY`、`DEEPSEEKER_ADMIN_USER`、`DEEPSEEKER_ADMIN_PASSWORD`、`TZ=Asia/Shanghai`（向上游上报本地时区偏移）
+- ops-console：`OPS_ADMIN_PASSWORD`、`GATEWAY_KEY`（new-api 网关 key，用于页面展示）、`TZ=Asia/Shanghai`（用量日界与备份文件名按本地时区）；自动调权可选 `AUTOSCALE_ENABLED` / `AUTOSCALE_INTERVAL_SEC` / `AUTOSCALE_WINDOW_MIN`（默认开、300s、90 分钟）
 - media-router：`SERVICE_TOKEN`（与服务 token 同值）
 - omni-caddy：无（纯路径路由；媒体转发已移到 media-router）
 
 > media-router 生图链：内置模型名（free-chat/free-image）豆包→GLM→new-api 兜底；非内置模型名（运维台添加的渠道）只走 new-api。
+> media-router 的 `/health`、`/docs` 只在容器网内可达（从宿主经 Caddy 访问会落到 new-api 的页面兜底，属正常现象）。

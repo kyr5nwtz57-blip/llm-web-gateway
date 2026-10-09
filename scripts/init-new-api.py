@@ -25,8 +25,8 @@ import sys
 import time
 from pathlib import Path
 
-PRIMARY_PRIORITY = 10
-BACKUP_PRIORITY = -1
+PRIMARY_PRIORITY = 0
+BACKUP_PRIORITY = 0
 WEIGHT = 100
 
 ADAPTER_HOSTS = ("glm2api", "deeperseeker", "kimi2api", "doubao2api")
@@ -170,7 +170,7 @@ def main():
     con.execute("PRAGMA wal_checkpoint(FULL)")
     con.close()
 
-    print("[*] 渠道创建完成（容量权重 100，主用 priority=10 / 备用 -1）")
+    print("[*] 渠道创建完成（五家平权：priority=0、权重 100；权重由运维台「自动调权」按实测速度接管）")
     print(f"[*] 自愈参数已写入: {', '.join(OPTIONS)}")
     print()
     print(f"GATEWAY_TOKEN={gw_token}")

@@ -67,7 +67,8 @@ def _load_state():
 
 def _save_state():
     try:
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
+        tmp = STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "enabled": _enabled_state,
@@ -77,8 +78,9 @@ def _save_state():
                 f,
                 ensure_ascii=False,
             )
-    except Exception:
-        pass
+        os.replace(tmp, STATE_FILE)
+    except Exception as exc:
+        print(f"[autoscale] state 保存失败: {exc}", flush=True)
 
 
 def enabled():
@@ -131,7 +133,7 @@ def _fail_counts(since):
         client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
         try:
             raw = client.containers.get(NEWAPI_CONTAINER).logs(
-                timestamps=True, tail=20000
+                timestamps=True, since=int(since)
             )
         finally:
             client.close()

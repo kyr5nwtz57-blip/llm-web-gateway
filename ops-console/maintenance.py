@@ -15,7 +15,7 @@ DB_PATH = os.getenv("NEWAPI_DB", "/data/newapi/one-api.db")
 BACKUP_DIR = os.getenv("BACKUP_DIR", "/data/newapi/backups")
 KEEP = int(os.getenv("BACKUP_KEEP", "10"))
 INTERVAL = int(os.getenv("BACKUP_INTERVAL_SEC", str(24 * 3600)))
-_NAME_RE = re.compile(r"^one-api-\d{8}-\d{4}\.db$")
+_NAME_RE = re.compile(r"^one-api-\d{8}-\d{4,6}\.db\Z")
 
 
 def _auto_backups():
@@ -29,11 +29,11 @@ def run_backup():
     if not os.path.exists(DB_PATH):
         return {"ok": False, "error": f"数据库不存在: {DB_PATH}"}
     os.makedirs(BACKUP_DIR, exist_ok=True)
-    name = "one-api-" + time.strftime("%Y%m%d-%H%M") + ".db"
+    name = "one-api-" + time.strftime("%Y%m%d-%H%M%S") + ".db"
     dest = os.path.join(BACKUP_DIR, name)
     src = sqlite3.connect(DB_PATH, timeout=20)
     try:
-        dst = sqlite3.connect(dest)
+        dst = sqlite3.connect(dest, timeout=20)
         try:
             src.backup(dst)
         finally:

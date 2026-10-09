@@ -53,9 +53,11 @@ harness / CLI（一个 key，模型名统一 free-chat）
 
 ## 部署
 
-1. 构建镜像：`docker build` 三个目录（`glm2api` / `doubao2api` / `ops-console`），
-   `deeperseeker` 与 `kimi2api` 按各自上游 README 构建。
-2. 建网络 `docker network create omni-net`，按 `docs/deploy-notes.md` 中的 docker run 参数启动全部容器。
+1. 构建镜像：6 个自建镜像各自 `docker build` —— `glm2api` / `doubao2api` / `media-router` /
+   `ops-console`（本仓库内），`deeperseeker` / `kimi2api`（按 `upstream-patches/README.md`
+   锚定的上游 commit 拉取、deeperseeker 需打补丁）。
+2. 建网络 `docker network create omni-net`，按 **`docs/fresh-machine-setup.md` 第 5 步**的
+   docker run 参数启动全部容器（含 media-router 与运维台）。
 3. 凭证（各家网页登录态，**只在运维台里粘贴**，落盘在本机 `data/` 卷，不入库；取值方法与 **Console 粘贴被拦的解法**见 `docs/credentials-guide.md`）：
    - 智谱：`chatglm.cn` cookie `chatglm_refresh_token`
    - DeepSeek：`chat.deepseek.com` localStorage `userToken`（JSON 取 `.value`）

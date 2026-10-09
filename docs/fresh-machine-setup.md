@@ -17,11 +17,13 @@ gh repo clone kyr5nwtz57-blip/llm-web-gateway
 cd llm-web-gateway
 ```
 
-再拉两个不支持容器化发布的上游适配器（版本以当时 HEAD 为准）：
+再拉两个不支持容器化发布的上游适配器（**必须锚定已验证提交**，见 `upstream-patches/README.md`；不要用上游最新版）：
 
 ```bash
-git clone --depth 1 https://github.com/AmanCode22/deeperseeker.git deeperseeker
-git clone --depth 1 https://github.com/chopper1026/kimi2api.git kimi2api
+git clone https://github.com/AmanCode22/deeperseeker.git deeperseeker
+git -C deeperseeker checkout af802422f4b2d061a7d81aeb3733ea3201eea8b2
+git clone https://github.com/chopper1026/kimi2api.git kimi2api
+git -C kimi2api checkout 7f046d8627f275432f82788a6547bc905038738c
 ```
 
 **deeperseeker 必须打补丁**（上游原版 Dockerfile 直接 build 会失败：README 缺失导致
@@ -38,7 +40,7 @@ docker network create omni-net
 mkdir -p data/{glm2api,doubao2api,deeperseeker,kimi2api,ops}
 ```
 
-## 3. 构建 5 个镜像
+## 3. 构建 6 个镜像
 
 ```bash
 docker build -t glm2api:latest       glm2api
@@ -60,7 +62,7 @@ python -c "import secrets;print('GLM_API_KEY=sk-glm-'+secrets.token_urlsafe(24))
 
 把生成值记到本机一个临时文件（**不要**放进仓库）。
 
-## 5. 启动 7 个容器
+## 5. 启动 8 个容器
 
 ```bash
 # 5.1 四家适配器（全部无宿主端口，走 omni-net）
@@ -84,6 +86,7 @@ docker run -d --name deeperseeker --restart unless-stopped --network omni-net \
   -v "$PWD/data/deeperseeker:/app/data" \
   -e DEEPSEEKER_API_KEY=<DS_API_KEY> -e DEEPSEEKER_ADMIN_USER=admin \
   -e DEEPSEEKER_ADMIN_PASSWORD=<DS_ADMIN_PASSWORD> -e HOST=0.0.0.0 -e PORT=4000 \
+  -e TZ=Asia/Shanghai \
   deeperseeker:latest
 
 # 5.2 new-api（挂宿主数据目录，无宿主端口）
@@ -98,6 +101,7 @@ docker run -d --name ops-console --restart unless-stopped --network omni-net \
   -v <宿主绝对路径>/new-api-data:/data/newapi \
   -v //var/run/docker.sock:/var/run/docker.sock \
   -e OPS_ADMIN_PASSWORD=<OPS_ADMIN_PASSWORD> -e GATEWAY_KEY=<新网关token> \
+  -e TZ=Asia/Shanghai \
   ops-console:latest
 
 # 5.4 Caddy（唯一宿主端口）
@@ -107,7 +111,12 @@ docker run -d --name omni-caddy --restart unless-stopped --network omni-net \
 
 # 5.5 media-router（生图/生视频双平台故障转移）
 docker run -d --name media-router --restart unless-stopped --network omni-net \
-  -e SERVICE_TOKEN=<第一步给适配器的那个服务 token> media-router:latest
+  -e SERVICE_TOKEN=<第 4 步统一的服务 token> media-router:latest
+
+# 5.6（可选）portainer：可视化 Docker 管理，装了运维台体检会多一项；不装不影响
+# docker run -d --name portainer --restart unless-stopped --network omni-net \
+#   -p 127.0.0.1:9000:9000 -v //var/run/docker.sock:/var/run/docker.sock \
+#   portainer/portainer-ce:latest
 ```
 
 > 整个系统只需**一个 token**：它同时是 new-api 网关 key、四家适配器 env
@@ -130,9 +139,9 @@ python scripts/init-new-api.py \
 ```
 
 脚本会自动完成：备份 DB → 停容器 → **幂等清理旧适配器渠道**（按 base_url 匹配，
-不依赖渠道名）→ 建 4 个 free-chat 渠道（GLM/DeepSeek 主用 priority=10、
-Kimi/豆包备用 -1）+ 2 个 free-image 渠道 → 写入自愈参数（RetryTimes=3、
-自动禁用/启用、阈值 5、码 401/403/429）→ 打印**网关 token** → 启容器。
+不依赖渠道名）→ 建 4 个 free-chat 渠道（**五家平权**：priority=0、权重 100）+ 2 个 free-image 渠道
+→ 写入自愈参数（RetryTimes=3、自动禁用/启用、阈值 5、码 401/403/429）→
+打印**网关 token** → 启容器。权重随后由运维台「自动调权」按实测速度自动接管。
 
 把打印出的 `GATEWAY_TOKEN` 记好：它是客户端用的 key，也是 ops-console
 的 `GATEWAY_KEY` 环境变量值。**无需进 new-api 网页后台手点**。
@@ -140,7 +149,7 @@ Kimi/豆包备用 -1）+ 2 个 free-image 渠道 → 写入自愈参数（RetryT
 自查 base_url 是容器名、渠道 key 对应即可。）
 
 > **模型名只需记一个**：`free-chat`。聊天、生图、生视频三个端点都用它
-> （生图/生视频在 Caddy 层直连 GLM，不经过 new-api 按名随机；
+> （生图/生视频走 media-router：内置名豆包→GLM→new-api 兜底；
 > `free-image` 作为历史别名仍兼容）。调用哪个工具由 LLM 按任务自行决定。
 
 ## 7. 粘贴四家网页登录态（在运维台完成）
@@ -161,7 +170,7 @@ Kimi/豆包备用 -1）+ 2 个 free-image 渠道 → 写入自愈参数（RetryT
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/            # 200
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/ops/        # 200
-# 运维台状态四家全 ok；
+# 运维台状态四家全 ok；点「一键体检」应全绿（portainer 未装会显示为"可选"）
 curl -s http://127.0.0.1:3000/v1/chat/completions \
   -H "Authorization: Bearer <新网关token>" -H "Content-Type: application/json" \
   -d '{"model":"free-chat","messages":[{"role":"user","content":"回复OK"}]}'   # 应返回内容
@@ -169,8 +178,8 @@ curl -s http://127.0.0.1:3000/v1/chat/completions \
 
 ## 已知坑（都在本清单里处理过了）
 
-1. deeperseeker 上游 Dockerfile 必须打补丁（第 1 步）；
-2. Caddyfile 里的 GLM key 用环境变量注入（`GLM_ADAPTER_KEY`），不要硬编码提交；
+1. deeperseeker 上游 Dockerfile 必须打补丁（第 1 步），且两个上游都要锚定 commit；
+2. 媒体端点鉴权由 media-router 统一 token 完成（Caddyfile 里没有任何 key）；
 3. 运维台挂 docker.sock 才能重启适配器——权限足够即可；
 4. 所有内部件**不要发布宿主端口**（除 3000）；
 5. 登录态会过期：豆包约 7–14 天，其余平台密码变更/登出也会失效——运维台亮红灯时回到第 7 步。
