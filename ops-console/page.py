@@ -493,6 +493,7 @@ setInterval(async ()=>{
   if(document.hidden)return;
   if(!document.getElementById('auto').checked)return;
   if(document.querySelector('#cards .cred-panel:not(.hidden)'))return;
+  if(document.querySelector('#scale details[open]'))return;
   const openTA=[...document.querySelectorAll('textarea')].some(t=>t.closest('.hidden')===null&&t.value.trim()!=='');
   if(openTA)return;
   try{
