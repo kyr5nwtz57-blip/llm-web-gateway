@@ -250,7 +250,7 @@ async def _iter_events(r):
             try:
                 yield json.loads(data_line)
             except json.JSONDecodeError:
-                pass
+                logger.warning("skip non-JSON sse data: %s", data_line[:200])
             data_line = ""
 
 
@@ -322,6 +322,17 @@ async def chat(request: Request, authorization: str = Header(default="")):
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     if ev.get("status") == "finish":
                         calls, _ = parse_tool_calls(full)
+                        if not calls and emitted_plain == 0:
+                            logger.warning(
+                                "stream finished with empty reply (soft rate-limit?)"
+                            )
+                            err = {
+                                "error": {
+                                    "message": "上游返回空回复（疑似软限流），请重试"
+                                }
+                            }
+                            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                            return
                         if calls:
                             tc = {
                                 "object": "chat.completion.chunk",
@@ -346,6 +357,12 @@ async def chat(request: Request, authorization: str = Header(default="")):
                             yield f"data: {json.dumps(end)}\n\n"
                         yield "data: [DONE]\n\n"
                         return
+                if emitted_plain == 0:
+                    err = {
+                        "error": {"message": "上游中断且未返回内容（疑似软限流），请重试"}
+                    }
+                    yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                    return
             finally:
                 await r.aclose()
                 await client.aclose()
@@ -364,6 +381,12 @@ async def chat(request: Request, authorization: str = Header(default="")):
         await client.aclose()
 
     calls, clean = parse_tool_calls(full)
+    if not calls and not clean.strip():
+        logger.warning("non-stream empty reply (soft rate-limit?)")
+        return JSONResponse(
+            {"error": {"message": "上游返回空回复（疑似软限流），请重试"}},
+            status_code=502,
+        )
     message = {"role": "assistant", "content": clean if not calls else None}
     if calls:
         message["tool_calls"] = calls
