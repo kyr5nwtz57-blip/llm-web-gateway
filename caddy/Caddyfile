@@ -9,6 +9,11 @@
 		reverse_proxy ops-console:8000
 	}
 
+	# 直连 deeperseeker（单家、原生 Anthropic），路径前缀 /ds 被剥掉
+	handle_path /ds/* {
+		reverse_proxy deeperseeker:4000
+	}
+
 	@gen path /v1/videos/generations /v1/images/generations
 	handle @gen {
 		reverse_proxy media-router:8000
