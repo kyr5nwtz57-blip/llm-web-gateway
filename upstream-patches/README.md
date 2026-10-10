@@ -7,4 +7,16 @@
 | AmanCode22/deeperseeker | `af802422f4b2d061a7d81aeb3733ea3201eea8b2` | `git clone https://github.com/AmanCode22/deeperseeker.git && git checkout af802422f4b2d061a7d81aeb3733ea3201eea8b2` |
 | chopper1026/kimi2api | `7f046d8627f275432f82788a6547bc905038738c` | `git clone https://github.com/chopper1026/kimi2api.git && git checkout 7f046d8627f275432f82788a6547bc905038738c` |
 
-deeperseeker 需要应用 `deeperseeker-dockerfile-fix.patch`（本目录），否则 build 失败。
+deeperseeker 需要按顺序应用本目录下的补丁（缺一不可）：
+
+```bash
+cd deeperseeker
+git apply ../upstream-patches/deeperseeker-dockerfile-fix.patch   # 否则 build 失败
+git apply ../upstream-patches/deeperseeker-count-tokens.patch     # 补齐 Anthropic count_tokens 端点
+cd ..
+```
+
+| 补丁 | 作用 |
+|---|---|
+| `deeperseeker-dockerfile-fix.patch` | 修上游 Dockerfile：COPY 顺序与 venv PATH，否则 `uv sync`/hatchling 元数据失败 |
+| `deeperseeker-count-tokens.patch` | 新增 `POST /v1/messages/count_tokens`（同 `/messages/count_tokens`）：Claude Code 每轮调用，缺它则退回本地估算（不致命但协议不完整）。计数复用 `count_tok`（DeepSeek tokenizer），与 `/v1/messages` 的 `usage.input_tokens` 口径一致 |

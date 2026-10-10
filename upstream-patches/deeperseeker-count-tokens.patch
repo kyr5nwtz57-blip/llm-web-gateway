@@ -1,0 +1,88 @@
+diff --git a/app.py b/app.py
+index fa8aba8..2ac721e 100644
+--- a/app.py
++++ b/app.py
+@@ -2217,6 +2217,83 @@ def convert_anthropic_messages(messages):
+     return openai_msgs
+ 
+ 
++def _flatten_content_parts(content, out):
++    """Append every text-bearing part of a message's content to `out`.
++
++    Mirrors `_messages_text` for the plain-string / text-block cases, but also
++    folds in `tool_use` (name+input) and `tool_result` bodies so that a
++    count_tokens request for an agentic turn (tool calls / tool results, no
++    plain text) still returns a non-zero, meaningful count.
++    """
++    if isinstance(content, list):
++        for c in content:
++            if not isinstance(c, dict):
++                continue
++            ctype = c.get("type")
++            if ctype == "text":
++                out.append(c.get("text", ""))
++            elif ctype == "tool_use":
++                out.append(c.get("name", ""))
++                inp = c.get("input")
++                if inp is not None:
++                    try:
++                        out.append(json.dumps(inp, ensure_ascii=False))
++                    except (TypeError, ValueError):
++                        out.append(str(inp))
++            elif ctype == "tool_result":
++                out.append(_content_to_text(c.get("content", "")))
++            else:
++                text = c.get("text")
++                if text is not None:
++                    out.append(str(text))
++    elif content is not None:
++        out.append(str(content))
++
++
++def _content_to_text(content):
++    """Best-effort plain text for a content value (str, or list of text blocks)."""
++    if isinstance(content, list):
++        parts = []
++        _flatten_content_parts(content, parts)
++        return "\n".join(p for p in parts if p)
++    if content is None:
++        return ""
++    return str(content)
++
++
++def _anthropic_input_text(body):
++    """The text whose DeepSeek-token count we report as `input_tokens`.
++
++    Ordering + counting rule matches the streaming path
++    (`count_tok(_messages_text(messages))`, app.py ~1411): system first, then
++    messages, each content part on its own line.
++    """
++    parts = []
++    system = body.get("system", "")
++    if system:
++        sys_text = _content_to_text(system)
++        if sys_text:
++            parts.append(sys_text)
++    for m in body.get("messages", []):
++        if not isinstance(m, dict):
++            continue
++        _flatten_content_parts(m.get("content", ""), parts)
++    return "\n".join(p for p in parts if p)
++
++
++@app.post("/v1/messages/count_tokens")
++@app.post("/messages/count_tokens")
++async def anthropic_count_tokens(request: Request):
++    # Anthropic's count_tokens endpoint takes the same body as /v1/messages and
++    # returns {"input_tokens": N}. Claude Code calls it every turn; without it
++    # the client silently falls back to a local estimate. Counted with the
++    # DeepSeek tokenizer (count_tok), the same unit used for /v1/messages usage.
++    if not check_key(request):
++        return JSONResponse({"error": "Invalid API key"}, status_code=401)
++    body = await _json_body(request)
++    return JSONResponse({"input_tokens": count_tok(_anthropic_input_text(body))})
++
++
+ @app.post("/v1/messages")
+ @app.post("/messages")
+ async def anthropic_messages(request: Request):
