@@ -20,3 +20,5 @@ cd ..
 |---|---|
 | `deeperseeker-dockerfile-fix.patch` | 修上游 Dockerfile：COPY 顺序与 venv PATH，否则 `uv sync`/hatchling 元数据失败 |
 | `deeperseeker-count-tokens.patch` | 新增 `POST /v1/messages/count_tokens`（同 `/messages/count_tokens`）：Claude Code 每轮调用，缺它则退回本地估算（不致命但协议不完整）。计数复用 `count_tok`（DeepSeek tokenizer），与 `/v1/messages` 的 `usage.input_tokens` 口径一致 |
+
+| `fly143-anthropic-context-compress.patch` | Fly143 Anthropic 路径补上下文压缩（上游只接在 OpenAI 路径，Claude 客户端肥 system prompt 裸发被 DeepSeek 网页端 413 拒）。在 `anthropic_messages` 的 prompt 构建前接 `enforce_context_limit` + `should_compress`（同 OpenAI 路径 proxy.py 接法），含 LLM 摘要/滑动窗口双兜底。锚点：Fly143/deepseek-free-api `48be2bf`（v2.4.2） |

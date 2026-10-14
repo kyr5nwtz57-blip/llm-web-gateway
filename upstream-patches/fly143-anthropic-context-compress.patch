@@ -1,0 +1,60 @@
+diff --git a/app/anthropic_routes.py b/app/anthropic_routes.py
+index 2d7d7d6..6f3d871 100644
+--- a/app/anthropic_routes.py
++++ b/app/anthropic_routes.py
+@@ -115,7 +115,7 @@ async def anthropic_messages(request: Request):
+         add_usage, add_tokens, _do_chat, cffi_requests, JSONResponse,
+         config_manager, extract_text_files_from_messages, extract_images_from_messages,
+         upload_file_to_deepseek, fork_file_to_vision, wait_for_file_parsing,
+-        get_usage_status,
++        get_usage_status, upstream_slot,
+     )
+     body = await request.json()
+     model = body.get("model", "deepseek-default")
+@@ -189,6 +189,46 @@ async def anthropic_messages(request: Request):
+         except Exception as e:
+             _vlog(f"vision fresh session failed: {e}")
+ 
++    # 上下文压缩/裁剪（对齐 OpenAI 路径 proxy.py:3886-3922——Claude 客户端
++    # system prompt 肥大，Anthropic 路径原先裸发，DeepSeek 网页端回 413）
++    try:
++        from context_manager import enforce_context_limit
++        from context_compressor import (
++            should_compress,
++            compress_messages as _compress_messages,
++            truncate_messages as _truncate_messages,
++            DEFAULT_COMPRESSION_MODE as _COMPRESS_DEFAULT,
++        )
++
++        messages, _tok, _pruned, _desc = enforce_context_limit(
++            messages, tools=tools,
++            max_input_tokens=model_info[2] if model_info[2] else None,
++        )
++        if _pruned:
++            _vlog(f"enforce_context_limit (anthropic): {_desc}")
++
++        mode = config_manager.get_compression_mode() or _COMPRESS_DEFAULT
++        if should_compress(messages):
++            if mode == "compress":
++                async def _llm_summary(prompt_text, _m):
++                    summary_model = model if "reasoner" in str(model) else "deepseek-default"
++                    with upstream_slot():
++                        result = _do_chat(
++                            cfg, prompt_text, summary_model, False, False,
++                            False, is_retry=True, has_tools=False, tools=None,
++                            ref_file_ids=None,
++                        )
++                    if isinstance(result, JSONResponse):
++                        body = json.loads(result.body)
++                        msg = body.get("choices", [{}])[0].get("message", {})
++                        return msg.get("content") or ""
++                    return ""
++                _, messages = await _compress_messages(messages, model, _llm_summary)
++            else:
++                messages = _truncate_messages(messages)
++    except Exception as e:
++        _vlog(f"context compress skipped (anthropic): {e}")
++
+     prompt = convert_messages_for_deepseek(messages, tools)
+     prompt_tokens = _count_tokens(prompt)
+ 
