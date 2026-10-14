@@ -9,9 +9,10 @@
 		reverse_proxy ops-console:8000
 	}
 
-	# 直连 deeperseeker（单家、原生 Anthropic），路径前缀 /ds 被剥掉
+	# DeepSeek：Fly143（多账号池、密码登录自动刷新、原生 Anthropic），路径前缀 /ds 被剥掉
+	# 回退：改回 reverse_proxy deeperseeker:4000（旧容器仍在，未删）
 	handle_path /ds/* {
-		reverse_proxy deeperseeker:4000
+		reverse_proxy fly143-deepseek:8000
 	}
 
 	@gen path /v1/videos/generations /v1/images/generations
