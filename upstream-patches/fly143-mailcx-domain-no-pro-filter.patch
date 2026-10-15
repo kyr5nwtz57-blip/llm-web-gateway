@@ -1,30 +1,39 @@
 diff --git a/app/registrar.py b/app/registrar.py
-index 413b327..275b83d 100644
+index 413b327..a1c802f 100644
 --- a/app/registrar.py
 +++ b/app/registrar.py
-@@ -546,10 +546,19 @@ def list_mailcx_domains(api_key: str) -> Tuple[bool, Any]:
+@@ -546,10 +546,27 @@ def list_mailcx_domains(api_key: str) -> Tuple[bool, Any]:
              for d in (resp.json().get("domains") or []):
                  if d.get("verify_status") == "verified":
                      domains.append(d.get("domain", ""))
 -        resp2 = cffi_requests.get(MAILCX_BASE + "/config", impersonate="chrome120", timeout=15)
 +        # /v1/config 现在也要求鉴权（无 key 返回 authentication_required，
-+        # system_domains 读不到 → 域名列表为空）。pro_only 域名需要付费，
-+        # 过滤掉以免批量注册选到不可用后缀。
++        # system_domains 读不到 → 域名列表空）。
++        # pro_only 域名不过滤：mail.cx 的 API key 只有付费用户才能签发，
++        # 有 key 即默认有 pro 权限；真无权限时会在注册阶段自然报错，
++        # 比在这里替用户做决定更诚实。default 域名排最前。
 +        resp2 = cffi_requests.get(MAILCX_BASE + "/config", headers={"x-api-token": api_key},
 +                                  impersonate="chrome120", timeout=15)
          if resp2.status_code == 200:
-             for d in (resp2.json().get("system_domains") or []):
+-            for d in (resp2.json().get("system_domains") or []):
 -                domains.append(d.get("domain", ""))
-+                if isinstance(d, dict):
-+                    if d.get("pro_only"):
-+                        continue
-+                    domains.append(d.get("domain", ""))
-+                    continue
-+                domains.append(str(d))
++            sysdom = resp2.json().get("system_domains") or []
++            def _dname(d):
++                return d.get("domain", "") if isinstance(d, dict) else str(d)
++            def _isdefault(d):
++                return bool(isinstance(d, dict) and d.get("default"))
++            for d in sorted([d for d in sysdom if not _isdefault(d)], key=lambda x: _dname(x)):
++                nm = _dname(d)
++                if nm:
++                    domains.append(nm)
++            for d in [d for d in sysdom if _isdefault(d)]:
++                nm = _dname(d)
++                if nm:
++                    domains.insert(0, nm)
          domains = [d for d in domains if d]
          if not domains:
              return False, "未获取到可用域名（请检查 API Key）"
-@@ -558,6 +567,18 @@ def list_mailcx_domains(api_key: str) -> Tuple[bool, Any]:
+@@ -558,6 +575,18 @@ def list_mailcx_domains(api_key: str) -> Tuple[bool, Any]:
          return False, f"获取域名失败: {e}"
  
  
@@ -43,7 +52,7 @@ index 413b327..275b83d 100644
  def clear_mailcx_inbox(api_key: str, address: str) -> None:
      """清空 mail.cx 邮箱，保证验证码是全新邮件。"""
      try:
-@@ -576,6 +597,8 @@ def read_code_mailcx(api_key: str, address: str, seen_ids: Optional[set] = None,
+@@ -576,6 +605,8 @@ def read_code_mailcx(api_key: str, address: str, seen_ids: Optional[set] = None,
      try:
          resp = cffi_requests.get(MAILCX_BASE + f"/inbox/{address}", headers={"x-api-token": api_key},
                                   impersonate="chrome120", timeout=timeout)
@@ -52,7 +61,7 @@ index 413b327..275b83d 100644
          if resp.status_code != 200:
              return None
          for em in (resp.json().get("emails") or []):
-@@ -958,8 +981,14 @@ class BatchRegistrar:
+@@ -958,8 +989,14 @@ class BatchRegistrar:
                  code = read_code_temp_api(cfg.get("url", ""))
              elif mode == "mailcx":
                  api_key = cfg.get("api_key", "") or config_manager.get_mailcx_api_key()

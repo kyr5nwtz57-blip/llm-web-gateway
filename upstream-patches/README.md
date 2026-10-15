@@ -37,3 +37,5 @@ cd ..
 > 即：**官方 v2.4.2 + 这 5 个补丁 == 现网运行代码**。注意 `token-refresh` 改的是
 > `proxy.py` 的 `cfg` 构造与 `_do_chat`/`do_stream`，`estimate-tool-blocks` 改的是
 > `context_compressor._content_text`（被 `context_manager` 复用），两者有先后依赖。
+
+| `fly143-mailcx-domain-no-pro-filter.patch` | 覆盖上一个 mailcx 补丁的域名部分：不过滤 `pro_only` 域名——mail.cx 的 API key **只有付费用户能签发**，有 key 即默认有 pro 权限，过滤反而砍掉用户的选择；真无权限时由注册阶段自然报错。同时 `default` 域名排列表最前。（含 `/v1/config` 需带 key 与 `token_busy` 退避两项修复） |
