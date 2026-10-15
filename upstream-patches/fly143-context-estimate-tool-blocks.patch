@@ -1,0 +1,107 @@
+diff --git a/context_compressor.py b/context_compressor.py
+index 03cd629..2a133f3 100644
+--- a/context_compressor.py
++++ b/context_compressor.py
+@@ -9,6 +9,7 @@
+ 
+ from __future__ import annotations
+ 
++import json
+ import os
+ from types import SimpleNamespace
+ from typing import Any, Dict, List, Optional, Tuple
+@@ -23,14 +24,53 @@ DEFAULT_COMPRESSION_MODE = os.getenv("DS_COMPRESSION_MODE", "compress")
+ 
+ def _msg_text(msg: Dict[str, Any]) -> str:
+     content = msg.get("content") or ""
+-    if isinstance(content, list):
+-        parts = [
+-            item.get("text", "")
+-            for item in content
+-            if isinstance(item, dict) and item.get("type") == "text"
+-        ]
+-        return " ".join(parts)
+-    return str(content)
++    return _content_text(content)
++
++
++def _content_text(content: Any) -> str:
++    """文本化一个 content 值。
++
++    必须覆盖 tool_use / tool_result / thinking：这些块在 agentic 长任务里
++    占绝大多数字符。早先只取 type=="text"，导致估算值远低于实际发出的
++    prompt 体积（DeepSeek 的 prompt 由 convert_messages_for_deepseek 把
++    这些块也转成文本），裁剪器因此误判"未超限"。
++    """
++    if content is None:
++        return ""
++    if isinstance(content, str):
++        return content
++    if not isinstance(content, list):
++        return str(content)
++    parts: List[str] = []
++    for item in content:
++        if not isinstance(item, dict):
++            if item is not None:
++                parts.append(str(item))
++            continue
++        itype = item.get("type")
++        if itype == "text":
++            parts.append(item.get("text", "") or "")
++        elif itype == "tool_use":
++            parts.append(item.get("name", "") or "")
++            inp = item.get("input")
++            if inp is not None:
++                try:
++                    parts.append(json.dumps(inp, ensure_ascii=False))
++                except (TypeError, ValueError):
++                    parts.append(str(inp))
++        elif itype == "tool_result":
++            parts.append(_content_text(item.get("content", "")))
++        elif itype in ("thinking", "reasoning"):
++            parts.append(item.get("thinking", "") or item.get("text", "") or "")
++        elif itype in ("image", "image_url", "document"):
++            parts.append(str(item.get("source", "") or item.get("url", "") or ""))
++        else:
++            for key in ("text", "content", "value"):
++                val = item.get(key)
++                if isinstance(val, str) and val:
++                    parts.append(val)
++                    break
++    return " ".join(p for p in parts if p)
+ 
+ 
+ def estimate_chars(messages: List[Dict[str, Any]]) -> int:
+diff --git a/context_manager.py b/context_manager.py
+index 9f4b6fa..f251621 100644
+--- a/context_manager.py
++++ b/context_manager.py
+@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
+ 
+ import tiktoken
+ 
++from context_compressor import _content_text as _anthropic_content_text
++
+ logger = logging.getLogger("context_manager")
+ 
+ # ── 分词器 ─────────────────────────────────────────────────
+@@ -58,12 +60,14 @@ def estimate_message_tokens(msg: Dict[str, Any]) -> int:
+     tokens = 0
+ 
+     content = msg.get("content")
+-    if isinstance(content, str) and content:
++    if isinstance(content, list):
++        # 统一走 compressor 的文本化：tool_use/tool_result/thinking 都计入，
++        # 否则 agentic 长任务的真实体积被低估几个量级，裁剪永不触发。
++        text = _anthropic_content_text(content)
++        if text:
++            tokens += count_tokens(text)
++    elif isinstance(content, str) and content:
+         tokens += count_tokens(content)
+-    elif isinstance(content, list):
+-        for part in content:
+-            if isinstance(part, dict) and part.get("type") == "text":
+-                tokens += count_tokens(part.get("text", ""))
+ 
+     if role == "assistant":
+         rc = msg.get("reasoning_content")

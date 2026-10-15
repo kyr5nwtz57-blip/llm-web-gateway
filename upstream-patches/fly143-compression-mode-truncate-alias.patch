@@ -1,0 +1,16 @@
+diff --git a/app/config.py b/app/config.py
+index 305d26c..1ae1a6d 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -405,7 +405,10 @@ class ConfigManager:
+ 
+     def set_compression_mode(self, mode: str):
+         with self.lock:
+-            self._compression_mode = "truncation" if mode == "truncation" else DEFAULT_COMPRESSION_MODE
++            # 只接受 compress / truncation；既有的 "truncate" 旧值仍要归一，
++            # 因为调用点判的是 mode == "compress"，非此即截断。
++            mode = (mode or "").strip().lower()
++            self._compression_mode = "truncation" if mode in ("truncation", "truncate") else DEFAULT_COMPRESSION_MODE
+             self.save()
+ 
+     def get_admin_password(self) -> str:

@@ -1,0 +1,175 @@
+diff --git a/app/anthropic_routes.py b/app/anthropic_routes.py
+index 2d7d7d6..7c715e3 100644
+--- a/app/anthropic_routes.py
++++ b/app/anthropic_routes.py
+@@ -115,7 +115,7 @@ async def anthropic_messages(request: Request):
+         add_usage, add_tokens, _do_chat, cffi_requests, JSONResponse,
+         config_manager, extract_text_files_from_messages, extract_images_from_messages,
+         upload_file_to_deepseek, fork_file_to_vision, wait_for_file_parsing,
+-        get_usage_status,
++        get_usage_status, upstream_slot,
+     )
+     body = await request.json()
+     model = body.get("model", "deepseek-default")
+@@ -143,6 +143,13 @@ async def anthropic_messages(request: Request):
+         "headers": dict(account.headers),
+         "cookie": account.cookie,
+         "account_label": account.account_label,
++        # relogin(cfg) 需要登录凭证才能在 token 失效时自动重登；缺了它
++        # 401/INVALID_TOKEN 只会 502。
++        "login_type": account.login_type,
++        "_password": account._password,
++        "_mobile": account._mobile,
++        "_area_code": account._area_code,
++        "_email": account._email,
+     }
+     account_label = account.account_label
+     ref_file_ids = []
+@@ -189,6 +196,46 @@ async def anthropic_messages(request: Request):
+         except Exception as e:
+             _vlog(f"vision fresh session failed: {e}")
+ 
++    # 上下文压缩/裁剪（对齐 OpenAI 路径 proxy.py:3886-3922——Claude 客户端
++    # system prompt 肥大，Anthropic 路径原先裸发，DeepSeek 网页端回 413）
++    try:
++        from context_manager import enforce_context_limit
++        from context_compressor import (
++            should_compress,
++            compress_messages as _compress_messages,
++            truncate_messages as _truncate_messages,
++            DEFAULT_COMPRESSION_MODE as _COMPRESS_DEFAULT,
++        )
++
++        messages, _tok, _pruned, _desc = enforce_context_limit(
++            messages, tools=tools,
++            max_input_tokens=model_info[2] if model_info[2] else None,
++        )
++        if _pruned:
++            _vlog(f"enforce_context_limit (anthropic): {_desc}")
++
++        mode = config_manager.get_compression_mode() or _COMPRESS_DEFAULT
++        if should_compress(messages):
++            if mode == "compress":
++                async def _llm_summary(prompt_text, _m):
++                    summary_model = model if "reasoner" in str(model) else "deepseek-default"
++                    with upstream_slot():
++                        result = _do_chat(
++                            cfg, prompt_text, summary_model, False, False,
++                            False, is_retry=True, has_tools=False, tools=None,
++                            ref_file_ids=None,
++                        )
++                    if isinstance(result, JSONResponse):
++                        body = json.loads(result.body)
++                        msg = body.get("choices", [{}])[0].get("message", {})
++                        return msg.get("content") or ""
++                    return ""
++                _, messages = await _compress_messages(messages, model, _llm_summary)
++            else:
++                messages = _truncate_messages(messages)
++    except Exception as e:
++        _vlog(f"context compress skipped (anthropic): {e}")
++
+     prompt = convert_messages_for_deepseek(messages, tools)
+     prompt_tokens = _count_tokens(prompt)
+ 
+diff --git a/proxy.py b/proxy.py
+index 1c19644..3297e27 100644
+--- a/proxy.py
++++ b/proxy.py
+@@ -3093,6 +3093,30 @@ def _mark_account_restricted(account_label, mute_until=None, banned=False):
+         print(f"[MUTE-DETECT] mark account failed: {_me}")
+ 
+ 
++def _is_invalid_token_body(raw) -> bool:
++    """DeepSeek 网页端的 token 失效形态：HTTP 200 + {"code":40003|40005|40006}。
++
++    relogin 只在 HTTP 401 时触发，这类 200-status 的错误过去直接 502。
++    """
++    if not raw:
++        return False
++    txt = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
++    if not txt.lstrip().startswith("{"):
++        return False
++    try:
++        import json as _json
++        obj = _json.loads(txt)
++    except Exception:
++        return False
++    if not isinstance(obj, dict):
++        return False
++    code = obj.get("code")
++    msg = str(obj.get("msg", "") or "").upper()
++    if code in (40003, 40005, 40006) or "TOKEN" in msg and ("INVALID" in msg or "EXPIRED" in msg):
++        return True
++    return False
++
++
+ def _raise_if_account_restricted_from_bytes(raw, status_code=200, account_label=None):
+     """If DeepSeek returned JSON biz restriction (muted/banned), raise HTTP 403."""
+     try:
+@@ -3813,6 +3837,12 @@ async def chat(request: Request):
+         "headers": dict(account.headers),
+         "cookie": account.cookie,
+         "account_label": account.account_label,
++        # relogin(cfg) 缺登录凭证会直接放弃，token 失效即 502
++        "login_type": account.login_type,
++        "_password": account._password,
++        "_mobile": account._mobile,
++        "_area_code": account._area_code,
++        "_email": account._email,
+     }
+     account_label = account.account_label
+     ref_file_ids = []
+@@ -5064,6 +5094,25 @@ def _do_chat(cfg, prompt, model, thinking_enabled, search_enabled, stream, is_re
+             if ref_file_ids or thinking_enabled:
+                 _vlog(f"chat stream response: status={resp.status_code} ct={resp.headers.get('content-type','?')} model={model} thinking={thinking_enabled}")
+ 
++            # token 失效也可能以 HTTP 200 + {"code":40003} 出现（流式时错误
++            # 帧在响应体开头），读流前先嗅探。
++            if not is_retry and resp.status_code == 200:
++                try:
++                    _head = next(resp.iter_lines(), None)
++                    _head_txt = _head.decode("utf-8", "replace") if isinstance(_head, (bytes, bytearray)) else (_head or "")
++                    if _head_txt and "40003" in _head_txt:
++                        print("[Token] INVALID_TOKEN (stream) detected, refreshing...")
++                        new_cfg = relogin(cfg)
++                        if new_cfg:
++                            for chunk in _do_chat_stream_only(new_cfg, prompt, model, thinking_enabled, search_enabled, has_tools, tools, ref_file_ids, temperature=temperature, top_p=top_p, max_tokens=max_tokens):
++                                yield chunk
++                            return
++                        al = cfg.get("account_label") or cfg.get("account")
++                        if al:
++                            config_manager.update_account(al, is_valid=False)
++                except Exception as _e:
++                    _vlog(f"stream token sniff failed: {_e}")
++
+             if resp.status_code == 401 and not is_retry:
+                 print("[Token] 401, trying refresh...")
+                 new_cfg = relogin(cfg)
+@@ -5319,6 +5368,26 @@ def _do_chat(cfg, prompt, model, thinking_enabled, search_enabled, stream, is_re
+                     account_label=cfg.get("account_label") or cfg.get("account"),
+                 )
+ 
++                # DeepSeek 网页端的 token 失效是 HTTP 200 + {"code":40003,
++                # msg INVALID_TOKEN}，不是 401。上面的 relogin 只在 401 时
++                # 触发，所以这类失效过去直接 502。这里补上：换新 token 后
++                # 重发一次。
++                if not is_retry and _is_invalid_token_body(_raw):
++                    print("[Token] INVALID_TOKEN (HTTP 200 payload) detected, refreshing...")
++                    new_cfg = relogin(cfg)
++                    if new_cfg:
++                        return _do_chat(new_cfg, prompt, model, thinking_enabled, search_enabled, stream, is_retry=True, has_tools=has_tools, tools=tools, ref_file_ids=ref_file_ids, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
++                    al = cfg.get("account_label") or cfg.get("account")
++                    if al:
++                        config_manager.update_account(al, is_valid=False)
++                    raise HTTPException(502, detail={
++                        "error": {
++                            "message": "Token invalid and auto-refresh failed (no password?)",
++                            "type": "server_error",
++                            "code": 40003,
++                        }
++                    })
++
+                 class _RespReplay:
+                     def __init__(self, raw, status_code, headers):
+                         self._raw = raw
