@@ -1,0 +1,71 @@
+diff --git a/app/registrar.py b/app/registrar.py
+index 413b327..275b83d 100644
+--- a/app/registrar.py
++++ b/app/registrar.py
+@@ -546,10 +546,19 @@ def list_mailcx_domains(api_key: str) -> Tuple[bool, Any]:
+             for d in (resp.json().get("domains") or []):
+                 if d.get("verify_status") == "verified":
+                     domains.append(d.get("domain", ""))
+-        resp2 = cffi_requests.get(MAILCX_BASE + "/config", impersonate="chrome120", timeout=15)
++        # /v1/config 现在也要求鉴权（无 key 返回 authentication_required，
++        # system_domains 读不到 → 域名列表为空）。pro_only 域名需要付费，
++        # 过滤掉以免批量注册选到不可用后缀。
++        resp2 = cffi_requests.get(MAILCX_BASE + "/config", headers={"x-api-token": api_key},
++                                  impersonate="chrome120", timeout=15)
+         if resp2.status_code == 200:
+             for d in (resp2.json().get("system_domains") or []):
+-                domains.append(d.get("domain", ""))
++                if isinstance(d, dict):
++                    if d.get("pro_only"):
++                        continue
++                    domains.append(d.get("domain", ""))
++                    continue
++                domains.append(str(d))
+         domains = [d for d in domains if d]
+         if not domains:
+             return False, "未获取到可用域名（请检查 API Key）"
+@@ -558,6 +567,18 @@ def list_mailcx_domains(api_key: str) -> Tuple[bool, Any]:
+         return False, f"获取域名失败: {e}"
+ 
+ 
++class MailcxTokenBusy(Exception):
++    """mail.cx 同一 key 同时只允许一个活跃连接，繁忙时会返回 {"error":"token_busy"}。
++
++    这不是"没有验证码"，必须与"真的没收到码"区分：否则批量注册会把
++    繁忙误判成收码失败，整批假失败。
++    """
++
++    def __init__(self, op: str):
++        super().__init__(f"token_busy: {op}")
++        self.op = op
++
++
+ def clear_mailcx_inbox(api_key: str, address: str) -> None:
+     """清空 mail.cx 邮箱，保证验证码是全新邮件。"""
+     try:
+@@ -576,6 +597,8 @@ def read_code_mailcx(api_key: str, address: str, seen_ids: Optional[set] = None,
+     try:
+         resp = cffi_requests.get(MAILCX_BASE + f"/inbox/{address}", headers={"x-api-token": api_key},
+                                  impersonate="chrome120", timeout=timeout)
++        if resp.status_code == 429 or (resp.status_code == 400 and "token_busy" in (resp.text or "")):
++            raise MailcxTokenBusy("inbox")
+         if resp.status_code != 200:
+             return None
+         for em in (resp.json().get("emails") or []):
+@@ -958,8 +981,14 @@ class BatchRegistrar:
+                 code = read_code_temp_api(cfg.get("url", ""))
+             elif mode == "mailcx":
+                 api_key = cfg.get("api_key", "") or config_manager.get_mailcx_api_key()
+-                code = read_code_mailcx(api_key, email,
+-                                        seen_ids=job["seen_ids"], timeout=30)
++                try:
++                    code = read_code_mailcx(api_key, email,
++                                            seen_ids=job["seen_ids"], timeout=30)
++                except MailcxTokenBusy:
++                    # 同一 key 只允许一个活跃连接：繁忙不是"没有验证码"，
++                    # 退避重试而不是当成收码失败。
++                    time.sleep(max(poll_interval * 2, 3.0))
++                    continue
+             else:
+                 return None
+             if code:
