@@ -28,3 +28,12 @@ cd ..
 | `fly143-compression-mode-truncate-alias.patch` | `set_compression_mode` 只认 `truncation`，填 `truncate` 被静默回退 `compress` → 面板/配置文件里看着设了截断，实际还是 LLM 摘要（慢）。归一化两种写法。**注意**：调用点判的是 `mode == "compress"`，非此即截断 |
 
 | `fly143-mailcx-domains-api-key.patch` | 修 mail.cx 域名拉取失败：`/v1/config`（system_domains 来源）**新版要求鉴权**，上游请求它时未带 key → 读到 `authentication_required` → 域名列表空 → 面板"获取不到域名"。改为带 `x-api-token`，并过滤 `pro_only` 域名（免费账号选到会注册失败）。另：mail.cx 同 key 同时仅允许一个活跃连接，繁忙返回 **HTTP 429 `{"error":"token_busy"}`**，原先被当成"无验证码"静默 None，批量注册会大面积假失败；改为抛 `MailcxTokenBusy` 并在 `_read_code_loop` 退避重试。注册 worker 本身单线程串行，天然匹配该约束 |
+
+> **重放校验（2026-10-15，对官方 zip 原版）**：解压官方 `deepseek-free-api-2.4.2.zip`
+> 后按上表顺序 `git apply` 以下 5 个补丁，`git apply --check` 全部通过：
+> `fly143-anthropic-context-compress` → `fly143-context-estimate-tool-blocks` →
+> `fly143-token-refresh-on-invalid-token` → `fly143-compression-mode-truncate-alias` →
+> `fly143-mailcx-domains-api-key`。
+> 即：**官方 v2.4.2 + 这 5 个补丁 == 现网运行代码**。注意 `token-refresh` 改的是
+> `proxy.py` 的 `cfg` 构造与 `_do_chat`/`do_stream`，`estimate-tool-blocks` 改的是
+> `context_compressor._content_text`（被 `context_manager` 复用），两者有先后依赖。
